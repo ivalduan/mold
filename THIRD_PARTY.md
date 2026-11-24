@@ -5,6 +5,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | Component | Used by | Licence | Mode | Status |
 |---|---|---|---|---|
 | serde, serde_json | graph, jobs | MIT OR Apache-2.0 | linked | in use |
+| blake3 | graph (content-hash cache keys) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
 | GPUI, GPUI Kit (gpui-fast feature) | ui-* , app | Apache-2.0 | linked | planned (ADR-0002) |
 | wgpu | render | MIT OR Apache-2.0 | linked | planned |
 | pdbtbx | mol | MIT (_verify_) | linked | planned |
