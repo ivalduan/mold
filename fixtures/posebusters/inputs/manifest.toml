@@ -1,0 +1,156 @@
+# PoseBusters reference inputs (generated file).
+#
+# Written by fixtures/scripts/make_posebusters_reference.py; do not edit by hand.
+posebusters_version = "0.6.5"
+rdkit_version = "2026.09.2"
+gemmi_version = "0.7.5"
+
+[[complex]]
+pdb_id = "1M17"
+chain = "A"
+ligand_comp_id = "AQ4"
+ligand = "erlotinib, non-covalent"
+protein = "inputs/1M17_protein.pdb"
+protein_sha256 = "191ec68bd4664419f32d4511f0e60c1bfcc1e2d64e5c9a5b0e22bb8c10b57edf"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "crystal"
+file = "inputs/1M17_AQ4_crystal.sdf"
+perturbation = "the deposited ligand coordinates, unmodified"
+sha256 = "866f23e6c2aa0ab5a01a14047fd7f44574d273607aa1d5496567cb50a6717142"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "clash"
+file = "inputs/1M17_AQ4_clash.sdf"
+perturbation = "whole ligand translated 4.0 A towards the protein centroid"
+sha256 = "9520273b3742255929128dfb24c8254604f39b8461aa377c512b2f65115b8b86"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "far"
+file = "inputs/1M17_AQ4_far.sdf"
+perturbation = "whole ligand translated 30.0 A away from the protein centroid"
+sha256 = "46711f9ad659ceec2e4f92105f17f1790d3baa3783746b45a8b7082581df24a5"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "stretched"
+file = "inputs/1M17_AQ4_stretched.sdf"
+perturbation = "one acyclic single bond stretched to 3.0 A"
+sha256 = "16e803d9b8d844718465e1f1e53b8ab8aaf19a19c5e8205633bbc10aa22c37d6"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "internal-clash"
+file = "inputs/1M17_AQ4_internal-clash.sdf"
+perturbation = "one terminal heavy atom moved to 0.6 A from a non-bonded atom"
+sha256 = "827d2984b6044925f3ef9f2d93e12afbe15f3c5f526da2d5fb7223d9e612365b"
+
+[[pose]]
+pdb_id = "1M17"
+pose = "puckered"
+file = "inputs/1M17_AQ4_puckered.sdf"
+perturbation = "one aromatic ring atom pushed 0.7 A out of the ring plane"
+sha256 = "8603e6a4a68f90f72978692b7af77a7c9e74179a5e69477648d0d5f7288047e1"
+
+[[complex]]
+pdb_id = "4WKQ"
+chain = "A"
+ligand_comp_id = "IRE"
+ligand = "gefitinib, non-covalent"
+protein = "inputs/4WKQ_protein.pdb"
+protein_sha256 = "15a7e18a92efd540eecf1108abd30585e0261d0b3b61410d0f34fd7d286e8f55"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "crystal"
+file = "inputs/4WKQ_IRE_crystal.sdf"
+perturbation = "the deposited ligand coordinates, unmodified"
+sha256 = "ecf6107b028b1bd48cfd941d1b66eec0fffefd705f2cc537d1380ebe2b5bac8b"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "clash"
+file = "inputs/4WKQ_IRE_clash.sdf"
+perturbation = "whole ligand translated 4.0 A towards the protein centroid"
+sha256 = "cdbfb5aa9fd27279a3c644b910ed0a2ceb5050a3d4c47de1e7753d5e556294bd"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "far"
+file = "inputs/4WKQ_IRE_far.sdf"
+perturbation = "whole ligand translated 30.0 A away from the protein centroid"
+sha256 = "48e88a98b68768928dd27c9f77c4889d716e37fe9d73e12b3abc1c9b4be771a0"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "stretched"
+file = "inputs/4WKQ_IRE_stretched.sdf"
+perturbation = "one acyclic single bond stretched to 3.0 A"
+sha256 = "f903038d13ba7d6a07cc9681fde2211b2339e7530772e6c821fe3c505c88d1ce"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "internal-clash"
+file = "inputs/4WKQ_IRE_internal-clash.sdf"
+perturbation = "one terminal heavy atom moved to 0.6 A from a non-bonded atom"
+sha256 = "8b4275f613073233dcc2da391e7afa0783e17ef6f10dfdd337cc89b63e03fcbc"
+
+[[pose]]
+pdb_id = "4WKQ"
+pose = "puckered"
+file = "inputs/4WKQ_IRE_puckered.sdf"
+perturbation = "one aromatic ring atom pushed 0.7 A out of the ring plane"
+sha256 = "fdcc221e204d3434a557ecf7360b190db2adfc417e9b7300ca038a9c7918b46e"
+
+[[complex]]
+pdb_id = "4G5J"
+chain = "A"
+ligand_comp_id = "0WN"
+ligand = "afatinib, covalently bound to Cys797"
+protein = "inputs/4G5J_protein.pdb"
+protein_sha256 = "7c14683ef601793a20850beb84aac720263e271cb5ca336404ee5fc740c12ff8"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "crystal"
+file = "inputs/4G5J_0WN_crystal.sdf"
+perturbation = "the deposited ligand coordinates, unmodified"
+sha256 = "eb0b5f92b8b63ca7dffe6f297a811a7190b154dcd491188f7a8d0d21473f7e85"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "clash"
+file = "inputs/4G5J_0WN_clash.sdf"
+perturbation = "whole ligand translated 4.0 A towards the protein centroid"
+sha256 = "85a586c916b74d7fa557a25ed6c84f07042be3b538f05bdc41446cc36c9e71ed"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "far"
+file = "inputs/4G5J_0WN_far.sdf"
+perturbation = "whole ligand translated 30.0 A away from the protein centroid"
+sha256 = "9d0ad47228e676b454b7edd94f76d6ab583b871991219710fca19d181f3d1e00"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "stretched"
+file = "inputs/4G5J_0WN_stretched.sdf"
+perturbation = "one acyclic single bond stretched to 3.0 A"
+sha256 = "41469ad73a46d5400a073fe527f75d9c5c52100e59b3081846579c954baf22be"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "internal-clash"
+file = "inputs/4G5J_0WN_internal-clash.sdf"
+perturbation = "one terminal heavy atom moved to 0.6 A from a non-bonded atom"
+sha256 = "cb9c70ac765f9e57445ad567d55b69810e7bf7dba6b1dc66490f1f4310e015a0"
+
+[[pose]]
+pdb_id = "4G5J"
+pose = "puckered"
+file = "inputs/4G5J_0WN_puckered.sdf"
+perturbation = "one aromatic ring atom pushed 0.7 A out of the ring plane"
+sha256 = "f64d5dc908e5b17c2dd506cdc7bc48e1164ae0a391c5eac2cfa32ce7e2d90524"
