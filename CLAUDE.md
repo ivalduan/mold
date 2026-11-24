@@ -23,7 +23,7 @@ Each workstream runs in its own git worktree on branch `ws/<name>` ([docs/worktr
 ## Contract types: change on `main` first
 These are shared across worktrees. Change them in a small PR to `main`, merge, then rebase your worktree:
 - `mold_mol::{PoseId, Selection, pose_columns}` ([crates/mol/src](crates/mol/src))
-- `mold_graph::PortType` and the node trait ([crates/graph/src/lib.rs](crates/graph/src/lib.rs))
+- `mold_graph::PortType`, the node traits `Processor`/`Partitioner` ([crates/graph/src/node.rs](crates/graph/src/node.rs)) and the `Executor` seam ([crates/graph/src/exec.rs](crates/graph/src/exec.rs)); see [crates/graph/DESIGN.md](crates/graph/DESIGN.md)
 - `mold_jobs::protocol` + [docs/worker-protocol.md](docs/worker-protocol.md)
 - Root `Cargo.toml` `[workspace.dependencies]`: add a dependency in its own commit, with its THIRD_PARTY.md line
 
