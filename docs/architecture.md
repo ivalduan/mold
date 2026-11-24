@@ -120,7 +120,7 @@ flowchart TB
 
 A step earns its own node when it has its own cache key, failure mode or runtime. A step that can never re-run without its neighbour is a parameter on that neighbour. Details per node: [crates/nodes/CLAUDE.md](../crates/nodes/CLAUDE.md).
 
-**Node author's contract:** by end of W4, adding a twelfth node takes one file and under 100 lines: declare ports, declare parameters, implement `evaluate`. If adding a node touches a UI crate, the abstraction is wrong.
+**Node author's contract:** by end of W4, adding a twelfth node takes one file and under 100 lines: implement `Processor` with `spec` (ports, parameters) and `cook`, plus `generate`/`generate_when` for fan-out and `fingerprint` for anything outside params that changes the result. If adding a node touches a UI crate, the abstraction is wrong.
 
 Viewport representations: spheres, sticks (GPU impostors), cartoon ribbons, pocket surface.
 
