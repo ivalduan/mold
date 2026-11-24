@@ -42,6 +42,23 @@ pdbtbx = { version = "0.12.0", default-features = false, features = ["compressio
 # (rt-multi-thread) unconditionally, and mol must not link an async runtime.
 polars = { version = "0.53.0", default-features = false }
 
+# UI band only (ADR-0002): never in a crate below the UI band. GPUI Kit pins its GPUI
+# snapshot; the gpui-fast feature selects GPUI Fast (window composition, native
+# surfaces). Members add layers (e.g. "component") themselves.
+gpui-kit = { version = "=0.11.0", default-features = false, features = ["gpui-fast"] }
+# Pinned exactly although gpui-kit already requires it: `platform_handle()` is an
+# untyped `Any`, so a gpui-fast bump can break the viewport at run time, not compile
+# time (ADR-0002). Bump only together with a re-run of the viewport spike.
+gpui-fast = { version = "=0.1.19", default-features = false }
+# render, ui-viewport. Exactly the wgpu gpui-fast-wgpu 0.1.19 pins for GPUI's Linux
+# renderer, so the tree holds one wgpu.
+wgpu = "=30.0.1"
+bytemuck = { version = "1", features = ["derive"] }
+glam = { version = "0.34", features = ["bytemuck"] }
+# ui-viewport, Windows only: must resolve to the windows-core gpui-fast-windows uses,
+# or the native-surface downcast fails at run time.
+windows = { version = "0.62", features = ["Win32_Graphics_DirectComposition"] }
+
 # Internal crates
 mold-mol = { path = "crates/mol" }
 mold-chem = { path = "crates/chem" }

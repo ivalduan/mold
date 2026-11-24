@@ -6,8 +6,10 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 |---|---|---|---|---|
 | serde, serde_json | graph, jobs | MIT OR Apache-2.0 | linked | in use |
 | blake3 | graph (content-hash cache keys) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
-| GPUI, GPUI Kit (gpui-fast feature) | ui-* , app | Apache-2.0 | linked | planned (ADR-0002) |
-| wgpu | render | MIT OR Apache-2.0 | linked | planned |
+| GPUI Kit 0.11.0 (`gpui-kit`, feature `gpui-fast`) → GPUI Fast 0.1.19 (`gpui-fast*`), GPUI snapshot `gpui-pre*` =0.3.14, `gpui-base`, `gpui-component` | ui-* , app | Apache-2.0 (verified: crates.io metadata + upstream LICENSE-APACHE in longbridge/gpui-kit and longbridge/gpui-fast) | linked | in use (ui-viewport, Windows only); pinned by ADR-0002 |
+| wgpu 30.0.1 | render, ui-viewport | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (ui-viewport); exact pin matches gpui-fast-wgpu |
+| bytemuck, glam 0.34 | render, ui-viewport | bytemuck: Zlib OR Apache-2.0 OR MIT; glam: MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (ui-viewport) |
+| windows 0.62 (Microsoft windows-rs) | ui-viewport (Windows) | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use; must match gpui-fast-windows |
 | pdbtbx 0.12 | mol | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use |
 | polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol); held below 0.54, which links tokio |
 | arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
