@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Nightly full Windows run, so no pull request waits on the GPUI tree.
+    - cron: "17 3 * * *"
 
 env:
   CARGO_TERM_COLOR: always
@@ -11,28 +14,82 @@ env:
 
 jobs:
   # Required. Linux, no GPU, no Python, no RDKit. This constraint is what keeps
-  # the mock worker and the UI-free core crates honest.
+  # the mock worker and the UI-free core crates honest. `ui-viewport` gates GPUI
+  # to `cfg(windows)` (ADR-0003), so this job never builds a UI toolkit and
+  # stays under a minute.
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --locked --profile ci -- -D warnings
+      - run: cargo test --workspace --locked --profile ci
       - run: bash scripts/check-layering.sh
 
-  # The dev platform. Builds and tests the headless crates on Windows.
+  # The dev platform. The Windows-specific risk in the headless crates is path
+  # and line-ending handling in mol's parsers, so those tests always run — they
+  # take about a minute. Compiling the GPUI tree costs ~25 min on a cold cache
+  # (ADR-0002: gpui-kit builds both GPUI lineages), so a pull request only pays
+  # it when it could plausibly have broken it. `main` and the nightly run always
+  # do the full build.
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Decide the scope of this run
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ github.event_name }}: full workspace build"
+            exit 0
+          fi
+          base="origin/${{ github.base_ref }}"
+          # Fail safe: if the base is unreachable we cannot know what changed,
+          # so build the GPUI tree rather than skip a check that matters.
+          if ! changed=$(git diff --name-only "$base...HEAD" 2>&1); then
+            echo "gpui=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::cannot diff against $base, assuming the UI band changed"
+            exit 0
+          fi
+          echo "Changed files:"; echo "$changed"
+          # Anything that could affect the GPUI build: the UI band, the crates
+          # that will depend on it, the dependency graph, or CI itself.
+          if echo "$changed" | grep -qE '^(crates/(ui-|app/|render/)|Cargo\.(toml|lock)$|\.github/)'; then
+            echo "gpui=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::touches the UI band or the dependency graph: compiling the GPUI tree"
+          else
+            echo "gpui=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no UI or dependency change: skipping the GPUI tree"
+          fi
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+
+      # Glob so a new UI crate is excluded automatically rather than silently
+      # dragging GPUI back into every pull request.
+      - name: Test the headless crates
+        if: steps.scope.outputs.full != 'true'
+        run: cargo test --workspace --locked --profile ci --exclude "mold-ui-*" --exclude mold-app
+
+      # Proves the GPUI code still compiles. `check` skips codegen and linking,
+      # which is where most of the cost of this tree is.
+      - name: Check the GPUI tree
+        if: steps.scope.outputs.full != 'true' && steps.scope.outputs.gpui == 'true'
+        run: cargo check -p mold-ui-viewport --all-targets --locked --profile ci
+
+      - name: Full workspace tests
+        if: steps.scope.outputs.full == 'true'
+        run: cargo test --workspace --all-targets --locked --profile ci
 
   # Optional, later: a GPU runner for the headless render test and the
-  # real-worker smoke test. Add once a self-hosted GPU runner exists.
+  # real-worker smoke test. Add once a self-hosted GPU runner exists. The
+  # performance budgets in CLAUDE.md belong there, on `--release` — never on the
+  # `ci` profile, which does not optimize dependencies.

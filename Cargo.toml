@@ -87,3 +87,18 @@ all = { level = "warn", priority = -1 }
 [profile.dev.package."*"]
 # Dependencies (wgpu, polars, pdbtbx) are slow unoptimized; our own code stays debuggable.
 opt-level = 2
+
+# CI: compile fast rather than run fast, the opposite trade-off from `dev`.
+# Optimizing dependencies is what makes a cold Windows run expensive, because it
+# optimizes the whole GPUI tree (19 crates) to run tests that never open a
+# window. Debug info is trimmed and incremental is off: every runner starts
+# fresh, so incremental only bloats the cache.
+# A performance budget from CLAUDE.md must NOT be measured on this profile —
+# use `--release`.
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
