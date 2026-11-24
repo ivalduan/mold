@@ -1,0 +1,21 @@
+[package]
+name = "mold-cli"
+description = "Headless recipe runner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mold"
+path = "src/main.rs"
+
+[dependencies]
+mold-graph.workspace = true
+mold-recipe.workspace = true
+mold-nodes.workspace = true
+mold-jobs.workspace = true
+
+[lints]
+workspace = true

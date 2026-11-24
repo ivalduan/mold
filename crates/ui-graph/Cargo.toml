@@ -1,0 +1,15 @@
+[package]
+name = "mold-ui-graph"
+description = "Node canvas: typed ports, drag-time type checking, custom node renderers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-graph.workspace = true
+# gpui-kit added once ADR-0002 pins the lineage; canvas base per ADR-0004.
+
+[lints]
+workspace = true

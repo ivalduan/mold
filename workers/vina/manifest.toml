@@ -1,0 +1,8 @@
+# Worker manifest (draft schema, owned by WS-05).
+name = "vina"
+executable = "python -m mold_worker_vina"
+environment = "conda:mold-vina"
+needs_gpu = false              # Vina is CPU-only and runs natively on Windows
+model = "autodock-vina"
+model_version = "TODO-pin"
+license = "Apache-2.0"

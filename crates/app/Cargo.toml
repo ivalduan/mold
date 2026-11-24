@@ -1,0 +1,29 @@
+[package]
+name = "mold-app"
+description = "Desktop application shell: docking layout and wiring"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mold-app"
+path = "src/main.rs"
+
+[features]
+rdkit = ["mold-nodes/rdkit"]
+
+[dependencies]
+mold-mol.workspace = true
+mold-graph.workspace = true
+mold-nodes.workspace = true
+mold-jobs.workspace = true
+mold-recipe.workspace = true
+mold-ui-graph.workspace = true
+mold-ui-viewport.workspace = true
+mold-ui-panels.workspace = true
+# gpui-kit added once ADR-0002 pins the lineage.
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "mold-ui-viewport"
+description = "GPUI element hosting the wgpu viewport; the ViewportBackend seam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-mol.workspace = true
+mold-render.workspace = true
+# gpui-kit (with the gpui-fast feature) is added once ADR-0002 pins the lineage.
+
+[lints]
+workspace = true

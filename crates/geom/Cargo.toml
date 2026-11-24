@@ -1,0 +1,15 @@
+[package]
+name = "mold-geom"
+description = "Spatial kernels: KD-tree, clashes, contacts, RMSD, PoseBusters-style validity checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-mol.workspace = true
+# Planned: kiddo (KD-tree). Dev: proptest, criterion.
+
+[lints]
+workspace = true

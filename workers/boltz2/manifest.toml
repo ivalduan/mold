@@ -1,0 +1,9 @@
+# Worker manifest (draft schema, owned by WS-05).
+name = "boltz2"
+executable = "python -m mold_worker_boltz2"   # run inside WSL2 on the Windows dev box (ADR-0005)
+environment = "conda:mold-boltz2"              # declared, never installed by the app
+needs_gpu = true
+# Pin deliberately: open-weights Boltz-2 line. Boltz 2.1 is reportedly closed/API-only.
+model = "boltz-2"
+model_version = "TODO-pin"
+license = "MIT"

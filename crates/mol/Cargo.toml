@@ -1,0 +1,14 @@
+[package]
+name = "mold-mol"
+description = "Coordinate arena, PDB/mmCIF I/O, pose table schema and the selection type"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Planned: pdbtbx (I/O), polars (pose table). Add via [workspace.dependencies].
+
+[lints]
+workspace = true

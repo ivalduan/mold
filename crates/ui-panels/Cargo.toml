@@ -1,0 +1,15 @@
+[package]
+name = "mold-ui-panels"
+description = "Pose table, affinity-vs-confidence scatter, 2D SAR; subscribers of the selection bus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-mol.workspace = true
+# gpui-kit (virtualized tables) and gpui-plot added once ADR-0002 pins the lineage.
+
+[lints]
+workspace = true

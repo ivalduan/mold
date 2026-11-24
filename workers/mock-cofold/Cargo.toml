@@ -1,0 +1,19 @@
+[package]
+name = "mold-mock-cofold"
+description = "Mock co-fold worker: replays a fixture directory of real poses with realistic timing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mock-cofold"
+path = "src/main.rs"
+
+[dependencies]
+mold-jobs.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

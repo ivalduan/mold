@@ -1,0 +1,15 @@
+[package]
+name = "mold-render"
+description = "Molecular renderer: wgpu + WGSL impostor spheres/sticks, ribbons, pocket surface, picking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-mol.workspace = true
+# Planned: wgpu, bytemuck, glam. NEVER gpui: this crate must render headless.
+
+[lints]
+workspace = true

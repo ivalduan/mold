@@ -1,0 +1,21 @@
+/target
+**/*.rs.bk
+*.pdb.tmp
+
+# Run directories and node caches produced by the graph executor
+/runs/
+.mold-cache/
+
+# Python workers
+__pycache__/
+*.pyc
+.venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local Claude Code settings
+.claude/settings.local.json

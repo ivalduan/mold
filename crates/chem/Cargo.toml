@@ -1,0 +1,20 @@
+[package]
+name = "mold-chem"
+description = "Ligand chemistry via RDKit (rdkit-sys): SMILES, stereo, standardization, strain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# RDKit's C++ build is a vcpkg/conda exercise on Windows and absent in CI.
+# Default builds and `cargo test` must work without it; see ADR-0006.
+default = []
+rdkit = []
+
+[dependencies]
+mold-mol.workspace = true
+
+[lints]
+workspace = true

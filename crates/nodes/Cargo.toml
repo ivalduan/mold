@@ -1,0 +1,21 @@
+[package]
+name = "mold-nodes"
+description = "The v0.1 node set (11 nodes) and the MSA provider trait"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+rdkit = ["mold-chem/rdkit"]
+
+[dependencies]
+mold-mol.workspace = true
+mold-chem.workspace = true
+mold-geom.workspace = true
+mold-graph.workspace = true
+mold-jobs.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+# Worker manifest. Schema is owned by WS-05 (mold-jobs); this is the draft shape.
+name = "mock-cofold"
+executable = "mock-cofold"     # resolved from target/ or PATH
+environment = "none"
+needs_gpu = false
+model = "fixture-replay"

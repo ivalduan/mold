@@ -1,0 +1,66 @@
+[workspace]
+resolver = "3"
+members = [
+    # Domain core: no GPUI, no async
+    "crates/mol",
+    "crates/chem",
+    "crates/geom",
+    "crates/render",
+    # Orchestration: no GPUI, testable headless
+    "crates/graph",
+    "crates/nodes",
+    "crates/jobs",
+    "crates/recipe",
+    "crates/cli",
+    # UI: the only crates allowed to depend on GPUI / GPUI Kit
+    "crates/app",
+    "crates/ui-graph",
+    "crates/ui-viewport",
+    "crates/ui-panels",
+    # Workers written in Rust (Python workers live in workers/ but are not crates)
+    "workers/mock-cofold",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+# repository = set once the repo name and org are decided (docs/v0.1-plan.md, open decisions)
+publish = false
+
+# Add third-party crates here first, then use `dep = { workspace = true }` in a member.
+# Keep each addition in its own small commit: this table is the main merge hotspot
+# between worktrees. Record the licence in THIRD_PARTY.md in the same commit.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Internal crates
+mold-mol = { path = "crates/mol" }
+mold-chem = { path = "crates/chem" }
+mold-geom = { path = "crates/geom" }
+mold-render = { path = "crates/render" }
+mold-graph = { path = "crates/graph" }
+mold-nodes = { path = "crates/nodes" }
+mold-jobs = { path = "crates/jobs" }
+mold-recipe = { path = "crates/recipe" }
+mold-ui-graph = { path = "crates/ui-graph" }
+mold-ui-viewport = { path = "crates/ui-viewport" }
+mold-ui-panels = { path = "crates/ui-panels" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.cargo]
+# The internal path dependencies encode the layering from docs/architecture.md before
+# any crate uses them. Remove this allow once the skeleton crates have real code.
+unused_dependencies = "allow"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dev.package."*"]
+# Dependencies (wgpu, polars, pdbtbx) are slow unoptimized; our own code stays debuggable.
+opt-level = 2

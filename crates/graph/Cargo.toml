@@ -1,0 +1,15 @@
+[package]
+name = "mold-graph"
+description = "Typed scientific DAG: ports, dirty propagation, work-queue scheduler, content-hash cache, undo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mold-mol.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true
