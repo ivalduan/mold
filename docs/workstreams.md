@@ -10,7 +10,7 @@ Each workstream runs in its own worktree on branch `ws/<name>` (`scripts/new-wor
 | WS-02 | `chem` | `crates/chem`, `adr/0006` | `mol` arena (later) | **now** (build smoke test) | [chem/CLAUDE.md](../crates/chem/CLAUDE.md) |
 | WS-03 | `geom` | `crates/geom` | `mol` arena read API | **now** (on raw slices) | [geom/CLAUDE.md](../crates/geom/CLAUDE.md) |
 | WS-04 | `graph` | `crates/graph` | `PortType` (on main) | **now** | [graph/CLAUDE.md](../crates/graph/CLAUDE.md) |
-| WS-05 | `jobs` | `crates/jobs`, `workers/mock-cofold`, `docs/worker-protocol.md` | protocol (on main) | **now** | [jobs/CLAUDE.md](../crates/jobs/CLAUDE.md) |
+| WS-05 | `jobs` | `crates/jobs`, `workers/mock-cofold`, `docs/worker-protocol.md`, `adr/0009` | ADR-0009; executor seam from `graph` | **on hold** (ADR-0009 design first) | [jobs/CLAUDE.md](../crates/jobs/CLAUDE.md) |
 | WS-08 | `render` | `crates/render` | `mol` arena positions | W1 | [render/CLAUDE.md](../crates/render/CLAUDE.md) |
 | WS-06 | `recipe` | `crates/recipe`, `crates/cli` | `graph` model + node trait | W2 (after WS-04 lands its model) | [recipe/CLAUDE.md](../crates/recipe/CLAUDE.md) |
 | WS-09 | `ui-graph` | `crates/ui-graph`, `adr/0004` | ADR-0002; `graph` model | W2 | [ui-graph/CLAUDE.md](../crates/ui-graph/CLAUDE.md) |
@@ -45,7 +45,7 @@ flowchart LR
   uip --> app
 ```
 
-**Wave 1 (start today, fully parallel):** `spike`, `fixtures`, `mol`, `chem`, `graph`, `jobs`, `geom`. Seven worktrees, no shared files except the contract types already on `main`.
+**Wave 1 (start today, fully parallel):** `spike`, `fixtures`, `mol`, `chem`, `graph`, `geom`. Six worktrees, no shared files except the contract types already on `main`. `jobs` waits for the execution-flavours design ([ADR-0009](../adr/0009-execution-flavours.md)).
 
 **Critical path:** `mol` + `graph` + `jobs` → `nodes` → first pose streamed (W4 gate) → `ui-panels` + `app` → demo (W6).
 

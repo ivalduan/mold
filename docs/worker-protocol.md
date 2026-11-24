@@ -36,4 +36,4 @@ Score keys should use the pose-table column names (`plddt`, `iptm`, `affinity_pr
 `name`, `executable`, `environment` (declared, never installed by the app), `needs_gpu`, `model`, `model_version` (pinned deliberately), `license`. The app validates it and reports a clear error if something is missing.
 
 ## Backends
-`LocalProcess` (v0.1; also how WSL2 is reached), `Ssh`, `Slurm` (stubbed). The job spec and event stream must not change between backends: that's the test of whether this protocol is designed right.
+Open: see [ADR-0009](../adr/0009-execution-flavours.md) (in-process / subprocess / external parity). Whatever is decided, the job spec and event stream must not change between local and remote execution: that's the test of whether this protocol is designed right.

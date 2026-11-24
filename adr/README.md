@@ -12,3 +12,5 @@ One numbered file per fork in the road. Copy [0000-template.md](0000-template.md
 | [0006](0006-rdkit-build.md) | RDKit via rdkit-sys, feature-gated | Accepted (build steps pending) | WS-02 |
 | [0007](0007-benchmark-target.md) | Benchmark target and ligand series | Proposed | WS-13 |
 | [0008](0008-process-boundary-licensing.md) | Solvers are subprocesses; licence boundary | Accepted | n/a |
+| [0009](0009-execution-flavours.md) | Execution flavours: in-process, subprocess, external | **Proposed (open)** | WS-05 |
+| [0010](0010-work-item-graph.md) | Work-item graph model (PDG-style) | Accepted | WS-04 |

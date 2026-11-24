@@ -80,13 +80,19 @@ Three structures carry the application. Get them right in week 1 and the panels 
 
 **Undo** is command-pattern over graph edits only. Pose data is derived: recomputed or read from cache, never undone.
 
-## Execution engine
-- **Pull-based, dirty-propagating, concurrent.** A param change dirties its node and everything downstream.
-- **Work queue over ready nodes**, not a recursive walk, so the MSA's minutes don't serialize in front of ligand prep.
-- **Content-hash cache**: key = hash(params + input hashes), stored in a run directory. Changing only the gate threshold re-runs only the gate. *This single feature is what makes it feel unlike a script.*
+## Execution engine: work items (ADR-0010)
+PDG-style, per [ADR-0010](../adr/0010-work-item-graph.md):
+- The **node graph** (edited by users, stored in recipes) generates a **work-item graph** (scheduled, cached, executed). Processors generate items (e.g. one per ligand, N poses per ligand); partitioners fan in (wait-for-all, group by attribute).
+- **Static and dynamic generation**: items are known from params before cooking, or produced as upstream items cook.
+- **Per-item dependencies**: an item cooks as soon as its own parents are done, not when the upstream node finishes, so poses stream in and the MSA never blocks ligand prep.
+- **Per-item content-hash cache and dirtying**: key = hash(node kind + params + parent items' attribute/output hashes). Changing only the gate threshold re-cooks only gate items and their descendants. *This single feature is what makes it feel unlike a script.*
+- **Executor seam per item**, see "Execution flavours" below.
+
+## Execution flavours (open: ADR-0009)
+Node work must run with parity in three flavours, like Houdini TOPs schedulers: **in-process** (threads, for Rust-native nodes), **subprocess** (local workers, incl. WSL2), and **external orchestration** (SSH, Slurm, cloud, farms). There is a default per graph, overridable per node. The graph decides *what* is ready; an executor decides *where and how* it runs. `mold-graph` owns that seam and ships only the in-process executor. The rest of the design is open in [ADR-0009](../adr/0009-execution-flavours.md).
 
 ## Workers
-Separate processes, protocol deliberately boring: see [worker-protocol.md](worker-protocol.md). Backends behind one trait: `LocalProcess` ships; `Ssh`, `Slurm` stubbed. Environments are declared in a manifest, never managed. The `mock-cofold` worker is a first-class deliverable.
+Solver workers are separate processes; the current protocol draft is deliberately boring: see [worker-protocol.md](worker-protocol.md). Environments are declared in a manifest, never managed. The `mock-cofold` worker is a first-class deliverable.
 
 Licensing at the process boundary: Vina is Apache-2.0, Boltz MIT, gnina GPL. Subprocess invocation keeps GPL off our codebase. Any proposal to link a solver in-process must answer this first.
 
