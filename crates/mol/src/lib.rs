@@ -10,11 +10,13 @@
 
 pub mod arena;
 mod element;
+pub mod io;
 pub mod pose_table;
 mod selection;
 
 pub use arena::{Arena, AtomName, AtomRecord, Chain, Pose, PoseBuilder, Residue};
 pub use element::Element;
+pub use io::{AltLocPolicy, Format, IoError, LoadOptions};
 pub use selection::Selection;
 
 /// Index of a pose in the coordinate arena, and the join key of the pose table.
