@@ -8,8 +8,9 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | blake3 | graph (content-hash cache keys) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
 | GPUI, GPUI Kit (gpui-fast feature) | ui-* , app | Apache-2.0 | linked | planned (ADR-0002) |
 | wgpu | render | MIT OR Apache-2.0 | linked | planned |
-| pdbtbx | mol | MIT (_verify_) | linked | planned |
-| polars, arrow | mol, nodes, ui-panels | MIT / Apache-2.0 (_verify_) | linked | planned |
+| pdbtbx 0.12 | mol | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use |
+| polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol); held below 0.54, which links tokio |
+| arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
 | kiddo | geom | MIT OR Apache-2.0 (_verify_) | linked | planned |
 | rdkit-sys → RDKit | chem (feature `rdkit`) | BSD-3-Clause (_verify_) | linked (FFI) | planned (ADR-0006) |
 | gpui-flow (fork) | ui-graph | _verify_ | linked | candidate (ADR-0004) |
