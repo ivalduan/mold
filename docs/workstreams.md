@@ -19,6 +19,22 @@ Each workstream runs in its own worktree on branch `ws/<name>` (`scripts/new-wor
 | WS-10 | `ui-panels` | `crates/ui-panels` | ADR-0002; pose table; `Selection` | W4 | [ui-panels/CLAUDE.md](../crates/ui-panels/CLAUDE.md) |
 | WS-11 | `app` | `crates/app`, `CONTRIBUTING.md` (demo section) | all UI crates, `nodes`, `recipe` | W4 | [app/CLAUDE.md](../crates/app/CLAUDE.md) |
 
+## Status (2026-11-24)
+How these are run in parallel: [orchestration.md](orchestration.md).
+
+| Workstream | State | Next |
+|---|---|---|
+| WS-04 `graph` | First PR merged ([#1](https://github.com/ivalduan/mold/pull/1)): work-item model, generation, per-item cache, executor seam, undo | Run-directory cache + per-`PortType` codecs |
+| WS-01 `mol` | First PR merged ([#2](https://github.com/ivalduan/mold/pull/2)): arena, PDB/mmCIF I/O, pose-table schema, fixtures in `fixtures/structures/` | Criterion load bench (needs a 300-pose set from WS-13) |
+| WS-05 `jobs` | On hold (ADR-0009) | Design the execution flavours |
+| `spike`, `fixtures`, `chem`, `geom` | Not started, can start now | `geom` can use the merged `mol` arena API |
+| `recipe` | Unblocked: the `graph` model is on `main` | |
+
+Open product decisions that touch upcoming work:
+- Polars held below 0.54 (it links tokio); loaders and parallel transforms are to be revisited in [ADR-0011](../adr/0011-loaders-and-parallel-transforms.md).
+- Generic/"any" `PortType` for partitioners: deferred until `nodes` shows a need.
+- Executor choice is not part of cache keys (proposed answer to ADR-0009 Q6; not yet confirmed).
+
 ## Dependency order
 
 ```mermaid

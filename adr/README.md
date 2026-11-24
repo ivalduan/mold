@@ -14,3 +14,4 @@ One numbered file per fork in the road. Copy [0000-template.md](0000-template.md
 | [0008](0008-process-boundary-licensing.md) | Solvers are subprocesses; licence boundary | Accepted | n/a |
 | [0009](0009-execution-flavours.md) | Execution flavours: in-process, subprocess, external | **Proposed (open)** | WS-05 |
 | [0010](0010-work-item-graph.md) | Work-item graph model (PDG-style) | Accepted | WS-04 |
+| [0011](0011-loaders-and-parallel-transforms.md) | Loaders as job items; parallel data transforms | Proposed (deferred) | n/a |

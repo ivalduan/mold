@@ -31,7 +31,7 @@ Already decided elsewhere and unchanged:
 2. Is the worker protocol (docs/worker-protocol.md, JSON over stdio) the subprocess flavour's contract only, or also the external flavour's payload?
 3. Result channel for external jobs: polling a shared run directory, a callback server (like PDG's RPC), or both? Firewalls and no-shared-filesystem cases.
 4. Shared filesystem assumption: Houdini requires one; does Mold? This affects artifact paths and cache keys.
-5. Resource model: slots, memory, GPUs. How a node declares its needs.
+5. Resource model: slots, memory, GPUs. How a node declares its needs, including occupancy for items that parallelise internally (loaders, Polars transforms): see [ADR-0011](0011-loaders-and-parallel-transforms.md).
 6. Per-node override: where does it live in the recipe so that switching local ↔ cluster doesn't change cache keys?
 7. Detached runs: can a recipe run on a cluster with the app closed and be reattached later?
 8. Which external backends to target first (SSH box, Slurm), and what v0.1 ships beyond stubs.
