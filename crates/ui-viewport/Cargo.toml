@@ -11,7 +11,21 @@ publish.workspace = true
 [dependencies]
 mold-mol.workspace = true
 mold-render.workspace = true
-# gpui-kit (with the gpui-fast feature) is added once ADR-0002 pins the lineage.
+# The seam hands `mold-render` a `wgpu::Surface`; wgpu builds headless everywhere.
+wgpu.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+
+# Only the Windows backend exists yet (ADR-0003), so GPUI is only built where it can
+# be used. macOS/Linux backends add their own target tables.
+[target.'cfg(windows)'.dependencies]
+gpui-kit.workspace = true
+gpui-fast.workspace = true
+windows.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+# The spike example uses the Kit's popup menu, the component the app will use.
+gpui-kit = { workspace = true, features = ["component"] }
 
 [lints]
 workspace = true
