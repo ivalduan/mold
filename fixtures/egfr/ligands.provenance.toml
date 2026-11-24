@@ -1,0 +1,46 @@
+# Provenance of egfr/ligands.smi (generated file).
+#
+# Written by fixtures/scripts/make_ligands.py; do not edit by hand.
+
+generated = "2026-11-24"
+rdkit_version = "2026.09.2"
+core_smiles = "c1ccc(Nc2ncnc3ccccc23)cc1"
+uniprot = "P00533"
+
+[counts]
+ligands = 395
+bad_smiles = 6
+lines_total = 401
+candidates = 1957
+element_filter = 38
+multi_fragment = 90
+scaffold_not_exact = 1434
+selected = 395
+activity_rows_scanned = 53569
+substructure_hits = 98828
+
+[activity]
+type = "pIC50 from the median of all qualifying PubChem IC50 values"
+min = 4.00
+max = 11.22
+median = 7.32
+with_multiple_measurements = 140
+
+[size]
+heavy_atoms_min = 17
+heavy_atoms_max = 44
+molecular_weight_min = 221.26
+molecular_weight_max = 615.60
+
+# Upstream snapshots, cached under fixtures/cache/ (not committed).
+# PubChem is updated continuously, so these checksums pin the snapshot
+# the committed ligands.smi was built from; the committed file is
+# authoritative, see fixtures/checksums.sha256.
+[[upstream]]
+url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/protein/accession/P00533/concise/CSV"
+sha256 = "3272469357f2cb84ed5a5f6de682d63d6387c8e73213b35ed2c01c169e29664b"
+
+[[upstream]]
+url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsubstructure/smiles/cids/TXT?MatchIsotopes=false&MatchCharges=false&MaxRecords=500000"
+body = "smiles=c1ccc(Nc2ncnc3ccccc23)cc1"
+sha256 = "ad5d2fdc417d529c963d1bb45de5a996cb6b4d2d554935e86074792f76dea817"
