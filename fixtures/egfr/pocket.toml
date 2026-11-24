@@ -1,0 +1,142 @@
+# Pocket definition for the EGFR benchmark (generated file).
+#
+# Written by fixtures/scripts/make_egfr_receptor.py; do not edit by hand.
+# Pocket RMSD is computed over these residues after superposing the
+# predicted complex on reference.cif; see ADR-0007.
+
+pdb_id = "4WKQ"
+chain = "A"
+ligand_comp_id = "IRE"
+ligand_name = "gefitinib"
+numbering = "author (auth_seq_id), identical to UniProt P00533 numbering"
+cutoff_angstrom = 5.0
+cutoff_definition = "any heavy atom of the residue within cutoff of any ligand heavy atom"
+residue_count = 22
+# Flat list, for consumers that only need the residue numbers.
+residues = [718, 719, 726, 743, 744, 745, 762, 766, 788, 789, 790, 791, 792, 793, 794, 795, 796, 797, 800, 844, 854, 855]
+
+[rmsd]
+atoms = "CA"  # recommended default: C-alpha of the residues above
+alternative_atoms = "all-heavy"  # for side-chain sensitive comparisons
+tolerance_angstrom = 0.1  # agreement expected between implementations
+
+[cross_reference]
+# A second crystal of the same kinase domain, already committed under
+# fixtures/structures/. Use it when a non-degenerate pocket RMSD is
+# wanted (receptor.cif comes from 4WKQ, so 4WKQ-vs-4WKQ is 0 by
+# construction). 1M17 is EGFR + erlotinib, the chemotype of the
+# ligand series, at 2.60 A; its kinase domain uses the same author
+# numbering, chain A.
+path = "../structures/1M17.cif"
+pdb_id = "1M17"
+ligand_comp_id = "AQ4"
+
+[[residue]]
+seq_id = 718
+name = "LEU"
+min_ligand_distance_angstrom = 3.46
+
+[[residue]]
+seq_id = 719
+name = "GLY"
+min_ligand_distance_angstrom = 5.00
+
+[[residue]]
+seq_id = 726
+name = "VAL"
+min_ligand_distance_angstrom = 4.03
+
+[[residue]]
+seq_id = 743
+name = "ALA"
+min_ligand_distance_angstrom = 3.28
+
+[[residue]]
+seq_id = 744
+name = "ILE"
+min_ligand_distance_angstrom = 4.60
+
+[[residue]]
+seq_id = 745
+name = "LYS"
+min_ligand_distance_angstrom = 3.41
+
+[[residue]]
+seq_id = 762
+name = "GLU"
+min_ligand_distance_angstrom = 3.36
+
+[[residue]]
+seq_id = 766
+name = "MET"
+min_ligand_distance_angstrom = 3.37
+
+[[residue]]
+seq_id = 788
+name = "LEU"
+min_ligand_distance_angstrom = 3.20
+
+[[residue]]
+seq_id = 789
+name = "ILE"
+min_ligand_distance_angstrom = 4.26
+
+[[residue]]
+seq_id = 790
+name = "THR"
+min_ligand_distance_angstrom = 3.38
+
+[[residue]]
+seq_id = 791
+name = "GLN"
+min_ligand_distance_angstrom = 3.20
+
+[[residue]]
+seq_id = 792
+name = "LEU"
+min_ligand_distance_angstrom = 3.84
+
+[[residue]]
+seq_id = 793
+name = "MET"
+min_ligand_distance_angstrom = 2.98
+
+[[residue]]
+seq_id = 794
+name = "PRO"
+min_ligand_distance_angstrom = 3.64
+
+[[residue]]
+seq_id = 795
+name = "PHE"
+min_ligand_distance_angstrom = 4.68
+
+[[residue]]
+seq_id = 796
+name = "GLY"
+min_ligand_distance_angstrom = 3.50
+
+[[residue]]
+seq_id = 797
+name = "CSX"
+min_ligand_distance_angstrom = 3.68
+
+[[residue]]
+seq_id = 800
+name = "ASP"
+min_ligand_distance_angstrom = 3.44
+
+[[residue]]
+seq_id = 844
+name = "LEU"
+min_ligand_distance_angstrom = 3.33
+
+[[residue]]
+seq_id = 854
+name = "THR"
+min_ligand_distance_angstrom = 3.49
+
+[[residue]]
+seq_id = 855
+name = "ASP"
+min_ligand_distance_angstrom = 3.92
