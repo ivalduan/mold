@@ -25,9 +25,11 @@ How these are run in parallel: [orchestration.md](orchestration.md).
 | Workstream | State | Next |
 |---|---|---|
 | WS-04 `graph` | First PR merged ([#1](https://github.com/ivalduan/mold/pull/1)): work-item model, generation, per-item cache, executor seam, undo | Run-directory cache + per-`PortType` codecs |
-| WS-01 `mol` | First PR merged ([#2](https://github.com/ivalduan/mold/pull/2)): arena, PDB/mmCIF I/O, pose-table schema, fixtures in `fixtures/structures/` | Criterion load bench (needs a 300-pose set from WS-13) |
+| WS-01 `mol` | First PR merged ([#2](https://github.com/ivalduan/mold/pull/2)): arena, PDB/mmCIF I/O, pose-table schema, fixtures in `fixtures/structures/` | Criterion load bench: the 300-pose generator is in WS-13's PR. **The 2 s budget needs a binary cache** — pdbtbx takes ~3 s to re-parse the 59 MB mmCIF |
+| WS-00 `spike` | PR merged ([#3](https://github.com/ivalduan/mold/pull/3)): GPUI Kit/gpui-fast pinned, `ViewportBackend` seam, Windows backend, 500-sphere example with picking and hide/show. Click → re-aimed frame ~1.6 ms against a 100 ms budget | **ADR-0002/0003 still `Proposed`**: product owner runs the example and ticks the ADR-0003 checklist. Accepting them unblocks WS-09/10/11 |
+| WS-13 `fixtures` | PR open and green ([#4](https://github.com/ivalduan/mold/pull/4)): EGFR 4WKQ receptor + reference, 395-ligand congeneric series with 6 deliberate failures, PoseBusters reference CSV, checksummed fetch script | Merge, then accept ADR-0007. Open: no cached MSA; `mock-cofold` replay set deferred |
 | WS-05 `jobs` | On hold (ADR-0009) | Design the execution flavours |
-| `spike`, `fixtures`, `chem`, `geom` | Not started, can start now | `geom` can use the merged `mol` arena API |
+| `chem`, `geom` | Not started, can start now | Both now have their fixture data in WS-13's PR: `geom` the PoseBusters CSV, `chem` the ligand series |
 | `recipe` | Unblocked: the `graph` model is on `main` | |
 
 Open product decisions that touch upcoming work:
@@ -77,7 +79,7 @@ The first PR of `mol`, `graph` and `jobs` should be **their public API with test
 - Pick one public congeneric series on a well-characterised target (default: EGFR kinase), record it in ADR-0007 with sources and licences.
 - Commit: receptor mmCIF, a reference crystal for pocket RMSD, 200–500 ligand SMILES (include a few that fail to parse on purpose), a small `mock-cofold` replay set of real poses with timings, and the PoseBusters reference CSV for `geom`'s cross-validation.
 - Plus parser golden files: one structure with altlocs, one with a covalent ligand.
-- Keep the repo light: large sets go behind a fetch script with checksums; the CI subset is committed.
+- Keep the repo light: large sets go behind a fetch script with checksums; the CI subset is committed. The budget and the no-LFS decision are [ADR-0012](../adr/0012-fixture-data-storage.md).
 
 ## workers-py
 **WS-12.** Python workers under `workers/boltz2` and `workers/vina`, speaking [the protocol](worker-protocol.md). Only after `mock-cofold` works end to end. Boltz-2 runs in WSL2 on the Windows dev box (ADR-0005). Never installs environments; the manifest declares them.

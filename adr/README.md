@@ -15,3 +15,4 @@ One numbered file per fork in the road. Copy [0000-template.md](0000-template.md
 | [0009](0009-execution-flavours.md) | Execution flavours: in-process, subprocess, external | **Proposed (open)** | WS-05 |
 | [0010](0010-work-item-graph.md) | Work-item graph model (PDG-style) | Accepted | WS-04 |
 | [0011](0011-loaders-and-parallel-transforms.md) | Loaders as job items; parallel data transforms | Proposed (deferred) | n/a |
+| [0012](0012-fixture-data-storage.md) | Fixture data in Git; no Git LFS | Accepted | n/a |

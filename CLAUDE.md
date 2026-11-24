@@ -21,6 +21,7 @@ If you are the **orchestrator** in the main checkout (briefing agents, reviewing
 - **Rust owns the interactive loop** (parsing, geometry, filtering, rendering). **Python owns anything with a neural network or force field**, always in a separate process. Nothing that loads a GPU model is linked into a binary.
 - GPL tools (e.g. gnina) are only ever invoked as subprocesses. Record every third-party dependency in [THIRD_PARTY.md](THIRD_PARTY.md) with "linked" or "subprocess".
 - Coordinates live only in the `mol` arena; metrics live only in the pose table. One `Selection` value, owned by no panel.
+- **No Git LFS** ([ADR-0012](adr/0012-fixture-data-storage.md)). Test data a test reads is committed under `fixtures/`, ≤5 MB per file; anything larger or generated goes behind a script in `fixtures/scripts/` into git-ignored `fixtures/cache/`, with its SHA-256 in `fixtures/checksums.sha256`. Re-run `uv run fixtures/fetch.py` after editing a fixture.
 
 ## Contract types: change on `main` first
 These are shared across worktrees. Change them in a small PR to `main`, merge, then rebase your worktree:
