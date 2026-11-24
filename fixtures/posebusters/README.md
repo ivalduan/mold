@@ -50,6 +50,16 @@ sits 1.84 Å from a protein atom, well inside any non-bonded clash threshold.
 Our gate must not call a covalent crystal pose invalid — this row is the test
 that it doesn't.
 
+**Not every boolean column is a verdict.** `most_extreme_clash_protein` is a
+*descriptor* of the most extreme contact found, and its polarity is the
+opposite of a verdict's: `False` means "that contact is not a clash" (the good
+case, as in 1M17's and 4WKQ's crystal poses) and `True` means "it is" (4G5J's
+covalent bond). A Rust test that loops over every `True`/`False` column and
+demands `True` for a valid pose will therefore reject all three crystal poses.
+Compare the verdict columns listed in the table below — the `bool verdicts`
+rows plus `rmsd_le_2a` and the loading/identity families — and treat
+`most_extreme_*_protein` as one of "the numbers behind them".
+
 ## Columns
 
 `pdb_id`, `ligand_comp_id`, `pose`, `ligand_file`, `protein_file`,

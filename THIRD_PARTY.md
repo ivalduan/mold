@@ -20,3 +20,15 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | OpenMM | worker (optional) | MIT / LGPL (_verify_) | subprocess | optional |
 | gnina | not used | GPL | subprocess only, if ever | excluded from v0.1 |
 | ColabFold MSA server | nodes (MSA Query) | network service | remote call | planned; sends sequence off-box |
+| PoseBusters 0.6.5, RDKit, gemmi | `fixtures/scripts` only | BSD-3-Clause / BSD-3-Clause / MPL-2.0 | neither: offline fixture tooling, run via `uv` | in use (WS-13); not linked, not shipped, not in CI |
+
+## Redistributed data
+
+Not software, but shipped in this repo and licensed separately. Per-dataset
+source, query and attribution are in [adr/0007-benchmark-target.md](adr/0007-benchmark-target.md)
+and the `README.md` beside each dataset.
+
+| Dataset | Where | Licence | Attribution required |
+|---|---|---|---|
+| PDB entries (1M17, 4G5J, 1EJG, 4WKQ), derived receptor/reference/pose files | `fixtures/structures`, `fixtures/egfr`, `fixtures/posebusters/inputs` | CC0 1.0 (wwPDB) | no |
+| EGFR 4-anilinoquinazoline series (`ligands.smi`) | `fixtures/egfr` | CC BY-SA 3.0 | **yes**: PubChem (NIH/NLM/NCBI) and ChEMBL (EMBL-EBI) |
