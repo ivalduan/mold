@@ -1,0 +1,12 @@
+# Entries in egfr/ligands.smi that MUST fail to parse.
+#
+# Written by fixtures/scripts/make_ligands.py; do not edit by hand.
+# Verified against RDKit 2026.09.2: Chem.MolFromSmiles returns None for each of them.
+# Columns: id <TAB> reason <TAB> smiles
+
+EGFR-0007-BAD	unclosed ring bond 1	COc1cc2c(Nc3cccc(Br)c3)ncnc2cc1OCCCN1CCOCC
+EGFR-0063-BAD	unbalanced parenthesis	COc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1OC(
+EGFR-0121-BAD	nitrogen with five bonds	COc1cc2c(Nc3ccccc3)ncnc2cc1N(C)(C)(C)C
+EGFR-0200-BAD	unknown element symbol Xx	COc1cc2c(Nc3ccccc3)ncnc2cc1[Xx]
+EGFR-0288-BAD	aromatic five-ring that cannot be kekulized	c1ccc2c(c1)ncnc2Nc1cccc1
+EGFR-0377-BAD	a name, not SMILES	4-anilinoquinazoline
