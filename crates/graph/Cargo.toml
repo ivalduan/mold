@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 mold-mol.workspace = true
+blake3.workspace = true
 serde.workspace = true
 
 [lints]

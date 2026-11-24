@@ -1,10 +1,41 @@
-//! The graph model and its evaluator.
+//! The graph model, its work-item generator and its scheduler.
 //!
-//! Every node has a stable `id`, a `kind` string, a parameter map and an input
-//! binding list: the same shape in memory and in the saved recipe, so
-//! serialization is a projection rather than a translation.
+//! Two levels (see `DESIGN.md`):
+//! - the **node graph** ([`Graph`]): what the user edits and the recipe stores. Nodes
+//!   with a stable `id`, a `kind`, a parameter map and input bindings; typed ports;
+//!   undoable edits ([`Editor`], [`History`]).
+//! - the **work-item graph** ([`ItemGraph`]): generated from the node graph by the
+//!   [`Engine`]. Work items are what is cached, scheduled and executed.
 //!
 //! See `CLAUDE.md` in this crate for scope and acceptance tests.
+
+mod cache;
+mod engine;
+mod exec;
+mod hash;
+mod history;
+mod item;
+mod model;
+mod node;
+mod param;
+mod partition;
+mod value;
+
+pub use cache::{Cache, MemoryCache};
+pub use engine::{CookOptions, Engine, EngineError, Observer};
+pub use exec::{Executor, Job, JobEvent, JobHandle, JobId, ThreadExecutor};
+pub use hash::ContentHash;
+pub use history::{Editor, History};
+pub use item::{ItemGraph, ItemId, ItemRole, ItemState, WorkItem};
+pub use model::{Edit, Graph, GraphError, NodeData, NodeId, OutputRef};
+pub use node::{
+    CancelToken, CookContext, GenerateContext, GenerateWhen, InputMode, Inputs, ItemView, NewItem,
+    NodeError, NodeImpl, NodeKind, NodeSpec, Outputs, Partition, Partitioner, PortSpec, Processor,
+    Registry, SpecError,
+};
+pub use param::{AttrValue, Attributes, ParamKind, ParamSpec, ParamValue, Params};
+pub use partition::{PartitionByAttribute, WaitForAll};
+pub use value::Value;
 
 use serde::{Deserialize, Serialize};
 
