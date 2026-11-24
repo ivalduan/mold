@@ -612,3 +612,55 @@ fn cancel_stops_the_cook() {
     assert!(items.cancelled);
     assert_eq!(items.count(&id("w"), ItemState::Cancelled), 1);
 }
+
+/// An executor that queues jobs and cooks them later, from its own thread, newest
+/// first: completion is asynchronous and out of order, like a farm.
+#[derive(Debug, Default)]
+struct Deferred {
+    queue: Mutex<Vec<(Job, JobHandle)>>,
+    submitted: Mutex<usize>,
+}
+
+impl Executor for Deferred {
+    fn submit(&self, job: Job, handle: JobHandle) {
+        *self.submitted.lock().unwrap() += 1;
+        self.queue.lock().unwrap().push((job, handle));
+    }
+}
+
+#[test]
+fn graph_default_executor_completes_out_of_order_from_another_thread() {
+    let f = fixture(Hooks::default());
+    let deferred = Arc::new(Deferred::default());
+    let engine = f.engine.clone().add_executor("farm", deferred.clone());
+    let mut graph = f.editor.graph().clone();
+    graph.executor = Some("farm".into());
+    // The node's own key overrides the graph default.
+    graph.nodes.get_mut(&id("receptor")).unwrap().executor = Some("nowhere".into());
+    assert!(matches!(
+        engine.cook(&graph, &[id("gate")]),
+        Err(EngineError::UnknownExecutor { .. })
+    ));
+    graph.nodes.get_mut(&id("receptor")).unwrap().executor = None;
+
+    let d = deferred.clone();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let s = stop.clone();
+    let farm = std::thread::spawn(move || {
+        while !s.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(5));
+            let batch: Vec<_> = d.queue.lock().unwrap().drain(..).rev().collect();
+            for (job, handle) in batch {
+                handle.started();
+                let r = job.cook_here(&handle);
+                handle.finish(r);
+            }
+        }
+    });
+    let items = engine.cook(&graph, &[id("gate")]).unwrap();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    farm.join().unwrap();
+
+    assert_eq!(items.count(&id("gate"), ItemState::Cooked), 6);
+    assert_eq!(*deferred.submitted.lock().unwrap(), 3 + 3 + 1 + 6 + 6);
+}

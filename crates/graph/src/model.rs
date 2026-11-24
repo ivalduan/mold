@@ -74,7 +74,7 @@ impl From<&str> for OutputRef {
 pub struct NodeData {
     pub kind: String,
     /// **Reserved.** Which executor runs this node (local threads, subprocess, farm).
-    /// `None` = the default. The selection logic is not designed yet (see `jobs`).
+    /// `None` = the graph's default, else the engine's. The selection logic is not designed yet (see `jobs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executor: Option<String>,
     #[serde(default, skip_serializing_if = "params_empty")]
@@ -103,6 +103,11 @@ impl NodeData {
 /// The whole graph. Ordered maps throughout: serialization and hashing are stable.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Graph {
+    /// **Reserved.** Default executor key for every node of this graph (ADR-0010);
+    /// a node's own `executor` overrides it. `None` = the engine default. Not part of
+    /// any cache key: switching local <-> farm keeps the cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
     #[serde(default)]
     pub nodes: BTreeMap<NodeId, NodeData>,
 }

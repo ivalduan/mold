@@ -92,7 +92,7 @@ impl JobHandle { fn started(&self); fn partial(&self, Outputs); fn finish(self, 
 
 - The scheduler loop runs on the caller's thread and waits on a channel; completions arrive from any thread, in any order, at any time. Nothing assumes the work runs on a scheduler-owned thread. No async runtime.
 - `ThreadExecutor` (a fixed pool of std threads, `Job::cook_here`) is the one shipped implementation.
-- Per-node override: `NodeData.executor: Option<String>` (serialized only when set) is looked up in `Engine::add_executor(key, …)`; `None` uses the engine default. Selection policy beyond that lookup is for `jobs` to design.
+- Default per graph, override per node (ADR-0010): `Graph.executor` and `NodeData.executor` (`Option<String>`, serialized only when set). The node key wins, then the graph key, then the engine default; keys resolve through `Engine::add_executor(key, …)`. The executor is not part of any cache key. Selection policy beyond that lookup is for `jobs` to design.
 - Cancel: `CookOptions.cancel` is shared with every job; on cancel the engine calls `Executor::cancel` for in-flight jobs and returns without waiting for them. Late reports are discarded.
 
 ## Deferred (follow-ups)

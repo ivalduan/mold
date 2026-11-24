@@ -34,4 +34,4 @@ Details in [DESIGN.md](DESIGN.md). In short:
 - **Input modes**: one `PerItem` input (parent, attribute inheritance) plus any number of `Broadcast` inputs (exactly one upstream item, e.g. the receptor).
 - **Generate when**: `EachUpstreamGenerated` (static, default), `EachUpstreamCooked` and `AllUpstreamCooked` (dynamic). Houdini's "all upstream generated" is omitted on purpose.
 - **Keys are Merkle-style** (a dependency contributes its key), so static item graphs are keyed and checked against the cache without cooking; dirtying is implicit in key changes.
-- **Executor seam**: `Executor::submit(Job, JobHandle)`; completion through the handle from any thread, any time; dropped handle = `Lost`. Per-node override via `NodeData.executor`.
+- **Executor seam**: `Executor::submit(Job, JobHandle)`; completion through the handle from any thread, any time; dropped handle = `Lost`. Default per graph (`Graph.executor`), override per node (`NodeData.executor`); not in cache keys.

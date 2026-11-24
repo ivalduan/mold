@@ -232,7 +232,7 @@ impl<'e, 'o> Run<'e, 'o> {
                     crate::node::InputMode::Broadcast => broadcast.push(b),
                 }
             }
-            let executor = match &data.executor {
+            let executor = match data.executor.as_ref().or(graph.executor.as_ref()) {
                 None => engine.default_executor.clone(),
                 Some(key) => engine.executors.get(key).cloned().ok_or_else(|| {
                     EngineError::UnknownExecutor {
