@@ -26,7 +26,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-# repository = set once the repo name and org are decided (docs/v0.1-plan.md, open decisions)
+repository = "https://github.com/ivalduan/mold"  # may move to a Mold-specific org
 publish = false
 
 # Add third-party crates here first, then use `dep = { workspace = true }` in a member.
