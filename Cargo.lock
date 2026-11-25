@@ -4228,6 +4228,8 @@ dependencies = [
 name = "mold-ui-graph"
 version = "0.0.0"
 dependencies = [
+ "gpui-fast",
+ "gpui-kit",
  "mold-graph",
 ]
 

@@ -9,8 +9,14 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The canvas core (`canvas`) depends on this alone and builds headless everywhere.
 mold-graph.workspace = true
-# gpui-kit added once ADR-0002 pins the lineage; canvas base per ADR-0004.
+
+# The GPUI view, like ui-viewport, is built on Windows only for now (ADR-0002/0003):
+# Linux CI builds and tests the headless core with no system packages.
+[target.'cfg(windows)'.dependencies]
+gpui-kit.workspace = true
+gpui-fast.workspace = true
 
 [lints]
 workspace = true

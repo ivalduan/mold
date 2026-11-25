@@ -10,3 +10,6 @@
 
 pub mod canvas;
 mod vendor;
+
+#[cfg(windows)]
+pub mod view;

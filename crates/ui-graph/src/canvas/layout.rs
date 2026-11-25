@@ -19,7 +19,7 @@ use crate::vendor::gpui_flow::bezier::get_bezier_path;
 
 /// Node geometry in world units (scaled by the camera's zoom on screen).
 pub mod metrics {
-    pub const NODE_WIDTH: f32 = 196.0;
+    pub const NODE_WIDTH: f32 = 232.0;
     pub const HEADER_HEIGHT: f32 = 28.0;
     pub const ROW_HEIGHT: f32 = 20.0;
     pub const PADDING: f32 = 6.0;
