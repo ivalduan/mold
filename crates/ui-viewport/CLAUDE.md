@@ -1,6 +1,8 @@
 # mold-ui-viewport — workstream WS-00 (week-0 spike), then WS-08 integration
 
-**Week 0 is a spike whose only deliverable is written decisions** ([ADR-0002](../../adr/0002-gpui-lineage.md), [ADR-0003](../../adr/0003-viewport-path.md)). Do not build the app shell.
+**Week 0 is done.** [ADR-0002](../../adr/0002-gpui-lineage.md) and [ADR-0003](../../adr/0003-viewport-path.md) are **Accepted** (2026-11-24): the lineage is pinned and the viewport path is proven on Windows. The app shell is no longer blocked — see [app/CLAUDE.md](../app/CLAUDE.md) (WS-11).
+
+What is in here is a **spike**, not the product: `src/spike/` is a stand-in for `mold-render` (WS-08) and is meant to be replaced, not grown. The seam (`backend.rs`) and the element (`element.rs`) are the parts that stay.
 
 ## Reference
 `javagg/gpui-fast-wgpu-demo`: a CAD viewport as a custom GPUI `Element` rendered by wgpu, using gpui-fast's public API, no fork. Its `src/viewport.rs` is the Windows path and the best-tested one.
@@ -8,9 +10,9 @@
 ## Week-0 spike tasks
 - [x] Port the demo's `src/viewport.rs` (Windows): `src/element.rs` + `src/platform_windows.rs`.
 - [x] Draw 500 impostor spheres through it (`examples/spike.rs`, spike renderer in `src/spike/`).
-- [ ] Confirm GPUI menus still paint above the surface (context menu + HUD seen above the surface in a self-test screenshot; GPUI Kit dropdown: product owner confirms, ADR-0003 checklist).
-- [ ] Confirm pointer picking round-trips (synthetic clicks pass; a real mouse click is on the product-owner checklist).
-- [x] Write ADR-0003 with the result (Proposed; product owner accepts). **If no decision by W1, cut the platform list; don't spend another week.**
+- [x] Confirm GPUI menus still paint above the surface (context menu + HUD by screenshot; GPUI Kit dropdown confirmed by the product owner).
+- [x] Confirm pointer picking round-trips (synthetic clicks 10/10; a real mouse click confirmed by the product owner).
+- [x] Write ADR-0003 with the result. **Accepted 2026-11-24**; the W1 gate passed, so no platform cut was needed.
 
 ## The seam (keep it thin)
 `ViewportBackend` answers two questions only: *give me a wgpu surface for this GPUI native surface* and *does this platform need an explicit commit after presenting*. Everything above it (camera, scene, pipelines, picking) is `mold-render` and never sees GPUI.
@@ -28,7 +30,7 @@ macOS (`CAMetalLayer` on the NSView) and Linux (`RawWindowHandle` → Vulkan) ar
 
 ## Acceptance tests
 - [ ] Click a pose → camera re-aimed in under 100 ms. *(Spike: click an atom → re-aimed frame presented in ~1 ms, 10/10 synthetic clicks; real poses need `mold-render` + `Selection`, WS-08/WS-11.)*
-- [ ] Hiding/showing a viewport tab works on Windows (empty-bounds path). *(Spike self-test passes; product owner confirms by hand, ADR-0003 checklist.)*
+- [x] Hiding/showing a viewport tab works on Windows (empty-bounds path). *(Self-test plus the product owner's hand check, including across a window resize, 2026-11-24.)*
 
 ## Design notes (WS-00 spike)
 - **Layout.** `backend.rs` (seam, no GPUI, all platforms) · `platform_windows.rs` (the one `Any` downcast) · `element.rs` (GPUI element + native surface; Windows-only for now) · `spike/` (camera, CPU picking, 500-atom scene, impostor renderer: **spike code standing in for `mold-render`**, to be replaced, not grown) · `examples/spike.rs`.

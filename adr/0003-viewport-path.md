@@ -1,6 +1,6 @@
 # 0003. Viewport path
 
-- Status: **Proposed (W1 gate)**. Spike done; the product owner accepts after the checklist below.
+- Status: **Accepted** 2026-11-24. W1 gate passed: the product owner ran the spike example and confirmed every exit criterion by hand.
 - Date: 2026-11-24
 - Deciders: product owner (accepts); WS-00 spike (proposes)
 - Workstream: WS-00 spike
@@ -50,24 +50,26 @@ cargo run -p mold-ui-viewport --example spike --release
 
 (First build ~5 min. `-- --self-test` runs the automatic sequence above and exits; ~20 s.)
 
-- [ ] **500 spheres** fill the viewport, shaded, with the HUD box (amber title "GPUI overlay (deferred), above the wgpu surface") in the top-left corner *over* the spheres.
-- [ ] **Menus paint above the surface**: click "View ▾": the GPUI Kit popup menu drops down *over* the spheres, not behind them; its items work ("Spin", "Stop spinning"). Right-click on the spheres: the context menu appears at the pointer, over the spheres.
-- [ ] **Picking round-trips**: left-click an atom: it turns green, the camera turns so it is at the centre of the viewport, and the terminal prints `pick: atom #… | click -> re-aimed frame presented … ms (budget 100 ms)`. Click empty space: `pick: nothing under the pointer`. Drag orbits around the picked atom; the wheel zooms.
-- [ ] **Hide/show**: "Hide viewport" leaves the text "viewport hidden (empty-bounds path)" and no spheres; "Show viewport" brings them back at the same size and place. Repeat a few times; also resize the window while shown and after showing.
-- [ ] **Slow frames don't freeze the UI**: "View ▾" → "Spin with 150 ms frames": the spheres turn jerkily, but menus, buttons and the HUD stay responsive; "Stop spinning" ends it.
-- [ ] Not black on start, not black after a resize (the commit workaround).
+**Done 2026-11-24: the product owner ran this and every item below behaved.**
+
+- [x] **500 spheres** fill the viewport, shaded, with the HUD box (amber title "GPUI overlay (deferred), above the wgpu surface") in the top-left corner *over* the spheres.
+- [x] **Menus paint above the surface**: click "View ▾": the GPUI Kit popup menu drops down *over* the spheres, not behind them; its items work ("Spin", "Stop spinning"). Right-click on the spheres: the context menu appears at the pointer, over the spheres.
+- [x] **Picking round-trips**: left-click an atom: it turns green, the camera turns so it is at the centre of the viewport, and the terminal prints `pick: atom #… | click -> re-aimed frame presented … ms (budget 100 ms)`. Click empty space: `pick: nothing under the pointer`. Drag orbits around the picked atom; the wheel zooms.
+- [x] **Hide/show**: "Hide viewport" leaves the text "viewport hidden (empty-bounds path)" and no spheres; "Show viewport" brings them back at the same size and place. Repeat a few times; also resize the window while shown and after showing.
+- [x] **Slow frames don't freeze the UI**: "View ▾" → "Spin with 150 ms frames": the spheres turn jerkily, but menus, buttons and the HUD stay responsive; "Stop spinning" ends it.
+- [x] Not black on start, not black after a resize (the commit workaround).
 
 Known rough edges, not part of the exit criteria: clicking the viewport while the GPUI Kit dropdown is open may not close it (viewport input goes to the render thread, not GPUI's dismiss logic; the context menu is closed explicitly); no MSAA on the spike impostors.
 
-## Spike exit criteria (all must hold to accept)
-- [x] 500 impostor spheres draw through the ported surface. *(verified by screenshot)*
-- [ ] GPUI menus paint above the surface. *(context menu + HUD verified by screenshot; GPUI Kit dropdown to be confirmed by the product owner)*
-- [ ] Pointer picking round-trips. *(verified with synthetic clicks; real mouse click to be confirmed by the product owner)*
-- [ ] Hide/show a viewport tab works on Windows. *(verified by self-test and screenshots; product owner confirms by hand)*
+## Spike exit criteria (all must hold to accept) — **all met**
+- [x] 500 impostor spheres draw through the ported surface. *(self-test screenshot; product owner confirmed by hand)*
+- [x] GPUI menus paint above the surface. *(context menu + HUD by screenshot; the GPUI Kit dropdown confirmed by the product owner)*
+- [x] Pointer picking round-trips. *(synthetic clicks 10/10 at ~1.6 ms median; a real mouse click confirmed by the product owner)*
+- [x] Hide/show a viewport tab works on Windows. *(self-test and screenshots; product owner confirmed by hand, including across a window resize)*
 
-If not met by W1: cut the platform list rather than spend another week.
+The W1 gate therefore passed and no platform cut was needed.
 
-## Decision (proposed)
+## Decision
 Adopt the path: a GPUI `Element` over a GPUI Fast native surface, with wgpu (own DX12 device, own render thread) behind the two-method `ViewportBackend` seam, **Windows only for v0.1 development**; macOS (`CAMetalLayer`) and Linux (`RawWindowHandle` → Vulkan) each later as one backend file plus a target table in `ui-viewport/Cargo.toml`. Keep both Windows workarounds (empty-bounds hide, `set_parent_origin` commit) until gpui-fast fixes them upstream. Nothing fundamental failed, so no platform cut is needed.
 
 ## Consequences

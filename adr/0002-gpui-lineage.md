@@ -1,6 +1,6 @@
 # 0002. GPUI lineage to pin
 
-- Status: **Proposed** (the product owner accepts; recommended for acceptance together with ADR-0003)
+- Status: **Accepted** 2026-11-24, together with ADR-0003
 - Date: 2026-11-24
 - Deciders: product owner (accepts); WS-00 spike (proposes)
 - Workstream: WS-00 spike

@@ -34,7 +34,7 @@ These are shared across worktrees. Change them in a small PR to `main`, merge, t
 - **Tests first.** Each crate's `CLAUDE.md` lists acceptance tests; write the test, then the implementation.
 - **Build bottom-up.** `mol`, `geom`, `graph` before any UI.
 - **Mock before real.** Use `workers/mock-cofold`; never block on a GPU, CUDA driver or Python env.
-- **Week 0 produces ADRs, not code.** Don't build the app shell before ADR-0002/0003 are accepted.
+- ~~**Week 0 produces ADRs, not code.** Don't build the app shell before ADR-0002/0003 are accepted.~~ **Week 0 is done**: [ADR-0002](adr/0002-gpui-lineage.md) and [ADR-0003](adr/0003-viewport-path.md) were accepted 2026-11-24, so the UI band (`ui-graph`, `ui-panels`, `app`) is open. Anything that must paint over the viewport uses `deferred(..)` — a plain child lands behind the swap chain.
 - A decision that forks the design → write an ADR in [adr/](adr/) (copy `0000-template.md`).
 
 ## Commands

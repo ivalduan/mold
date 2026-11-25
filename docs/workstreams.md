@@ -4,7 +4,7 @@ Each workstream runs in its own worktree on branch `ws/<name>` (`scripts/new-wor
 
 | ID | Name (branch `ws/…`) | Owns | Needs from others (contract) | Can start | Brief |
 |---|---|---|---|---|---|
-| WS-00 | `spike` | `adr/0002`, `adr/0003`, `crates/ui-viewport` (spike code) | none | **now** | [ui-viewport/CLAUDE.md](../crates/ui-viewport/CLAUDE.md) |
+| WS-00 | `spike` | `adr/0002`, `adr/0003`, `crates/ui-viewport` (spike code) | none | **done** — ADRs accepted 2026-11-24 | [ui-viewport/CLAUDE.md](../crates/ui-viewport/CLAUDE.md) |
 | WS-13 | `fixtures` | `fixtures/`, `adr/0007` | none | **now** | [below](#fixtures) |
 | WS-01 | `mol` | `crates/mol` | none | **now** | [mol/CLAUDE.md](../crates/mol/CLAUDE.md) |
 | WS-02 | `chem` | `crates/chem`, `adr/0006` | `mol` arena (later) | **now** (build smoke test) | [chem/CLAUDE.md](../crates/chem/CLAUDE.md) |
@@ -13,11 +13,11 @@ Each workstream runs in its own worktree on branch `ws/<name>` (`scripts/new-wor
 | WS-05 | `jobs` | `crates/jobs`, `workers/mock-cofold`, `docs/worker-protocol.md`, `adr/0009` | ADR-0009; executor seam from `graph` | **on hold** (ADR-0009 design first) | [jobs/CLAUDE.md](../crates/jobs/CLAUDE.md) |
 | WS-08 | `render` | `crates/render` | `mol` arena positions | W1 | [render/CLAUDE.md](../crates/render/CLAUDE.md) |
 | WS-06 | `recipe` | `crates/recipe`, `crates/cli` | `graph` model + node trait | W2 (after WS-04 lands its model) | [recipe/CLAUDE.md](../crates/recipe/CLAUDE.md) |
-| WS-09 | `ui-graph` | `crates/ui-graph`, `adr/0004` | ADR-0002; `graph` model | W2 | [ui-graph/CLAUDE.md](../crates/ui-graph/CLAUDE.md) |
+| WS-09 | `ui-graph` | `crates/ui-graph`, `adr/0004` | ADR-0002 ✅; `graph` model (on `main`) | **now** | [ui-graph/CLAUDE.md](../crates/ui-graph/CLAUDE.md) |
 | WS-12 | `workers-py` | `workers/boltz2`, `workers/vina` | protocol; ADR-0005 | W3 (after mock works) | [below](#workers-py) |
 | WS-07 | `nodes` | `crates/nodes`, `docs/authoring-a-node.md` | node trait, `mol`, `chem`, `geom`, `jobs` | W3 | [nodes/CLAUDE.md](../crates/nodes/CLAUDE.md) |
-| WS-10 | `ui-panels` | `crates/ui-panels` | ADR-0002; pose table; `Selection` | W4 | [ui-panels/CLAUDE.md](../crates/ui-panels/CLAUDE.md) |
-| WS-11 | `app` | `crates/app`, `CONTRIBUTING.md` (demo section) | all UI crates, `nodes`, `recipe` | W4 | [app/CLAUDE.md](../crates/app/CLAUDE.md) |
+| WS-10 | `ui-panels` | `crates/ui-panels` | ADR-0002 ✅; pose table; `Selection` | **now** for the table shell; pose data needs `nodes` | [ui-panels/CLAUDE.md](../crates/ui-panels/CLAUDE.md) |
+| WS-11 | `app` | `crates/app`, `CONTRIBUTING.md` (demo section) | all UI crates, `nodes`, `recipe` | W4 (ADR-0002/0003 ✅, but still wants the UI crates) | [app/CLAUDE.md](../crates/app/CLAUDE.md) |
 
 ## Status (2026-11-24)
 How these are run in parallel: [orchestration.md](orchestration.md).
@@ -26,16 +26,21 @@ How these are run in parallel: [orchestration.md](orchestration.md).
 |---|---|---|
 | WS-04 `graph` | First PR merged ([#1](https://github.com/ivalduan/mold/pull/1)): work-item model, generation, per-item cache, executor seam, undo | Run-directory cache + per-`PortType` codecs |
 | WS-01 `mol` | First PR merged ([#2](https://github.com/ivalduan/mold/pull/2)): arena, PDB/mmCIF I/O, pose-table schema, fixtures in `fixtures/structures/` | Criterion load bench: the 300-pose generator is in WS-13's PR. **The 2 s budget needs a binary cache** — pdbtbx takes ~3 s to re-parse the 59 MB mmCIF |
-| WS-00 `spike` | PR merged ([#3](https://github.com/ivalduan/mold/pull/3)): GPUI Kit/gpui-fast pinned, `ViewportBackend` seam, Windows backend, 500-sphere example with picking and hide/show. Click → re-aimed frame ~1.6 ms against a 100 ms budget | **ADR-0002/0003 still `Proposed`**: product owner runs the example and ticks the ADR-0003 checklist. Accepting them unblocks WS-09/10/11 |
-| WS-13 `fixtures` | PR open and green ([#4](https://github.com/ivalduan/mold/pull/4)): EGFR 4WKQ receptor + reference, 395-ligand congeneric series with 6 deliberate failures, PoseBusters reference CSV, checksummed fetch script | Merge, then accept ADR-0007. Open: no cached MSA; `mock-cofold` replay set deferred |
+| WS-00 `spike` | **Done.** PR merged ([#3](https://github.com/ivalduan/mold/pull/3)) and **ADR-0002 + ADR-0003 accepted 2026-11-24**: lineage pinned, viewport path proven on Windows, every exit criterion confirmed by hand. Click → re-aimed frame ~1.6 ms against a 100 ms budget | Nothing. The crate now belongs to WS-08: `mold-render` replaces `src/spike/`, keeping `backend.rs` and `element.rs`. **WS-09, WS-10 and WS-11 are unblocked** |
+| WS-13 `fixtures` | PR merged ([#4](https://github.com/ivalduan/mold/pull/4)): EGFR 4WKQ receptor + reference, 395-ligand congeneric series with 6 deliberate failures, PoseBusters reference CSV, checksummed fetch script | **ADR-0007 still `Proposed`**: product owner accepts. Open: no cached MSA (every route either sends the sequence off-box or needs a local alignment); `mock-cofold` replay set deferred |
 | WS-05 `jobs` | On hold (ADR-0009) | Design the execution flavours |
-| `chem`, `geom` | Not started, can start now | Both now have their fixture data in WS-13's PR: `geom` the PoseBusters CSV, `chem` the ligand series |
-| `recipe` | Unblocked: the `graph` model is on `main` | |
+| `chem`, `geom` | Not started, can start now | Fixture data is on `main`: `geom` the PoseBusters CSV, `chem` the 395-ligand series. `chem`'s risk is the `rdkit-sys` Windows build (ADR-0006), not the chemistry |
+| `recipe` | Unblocked: the `graph` model is on `main` | Only the TOML⇄graph half can start; CLI replay needs `nodes`, `jobs` and the mock worker |
+| infrastructure | [#5](https://github.com/ivalduan/mold/pull/5) + [#6](https://github.com/ivalduan/mold/pull/6) merged: [ADR-0012](../adr/0012-fixture-data-storage.md) (no Git LFS, fixture budget) and the CI rework — `ci` profile, path-gated GPUI build, `--locked`, `checkout@v5`. Windows job 28m31s → **5m26s** on its worst path | Measure a non-UI PR (should skip the GPUI tree entirely). A `--release` job for the CLAUDE.md performance budgets, with the GPU runner |
 
 Open product decisions that touch upcoming work:
 - Polars held below 0.54 (it links tokio); loaders and parallel transforms are to be revisited in [ADR-0011](../adr/0011-loaders-and-parallel-transforms.md).
 - Generic/"any" `PortType` for partitioners: deferred until `nodes` shows a need.
 - Executor choice is not part of cache keys (proposed answer to ADR-0009 Q6; not yet confirmed).
+- **Awaiting acceptance: [ADR-0007](../adr/0007-benchmark-target.md)** (the benchmark is on `main` and in use, so nothing is blocked; it just isn't formally frozen). [ADR-0002](../adr/0002-gpui-lineage.md) and [ADR-0003](../adr/0003-viewport-path.md) were accepted 2026-11-24.
+- Still open from ADR-0003, for whoever builds the app shell: a viewport click does not dismiss an open GPUI Kit dropdown (viewport input goes to the render thread, not GPUI's dismiss logic), there is no MSAA on the spike impostors, and device-lost recovery is unwired although `set_compositor_recreated_callback` exists in gpui-fast 0.1.19.
+- `mock-cofold` replay set: deferred until ADR-0009 settles, since its format follows the event stream. The 300-pose generator plus perturbed crystal poses are the raw material ([ADR-0012](../adr/0012-fixture-data-storage.md) keeps it out of a commit).
+- Three upstream issues to file against GPUI (not yet filed, needs the owner's go-ahead): `gpui-kit` builds **both** GPUI lineages because its `gpui` (= `gpui-pre`) dependency is not optional and Cargo features are additive — 14 `gpui-pre*` crates compile unused on Windows; plus gpui-fast's Windows `set_visible`/`remove_surface` `E_NOINTERFACE` and the missing public composition commit (we rely on `set_parent_origin` as a side effect). Decided **not** to fork: upstream moves ~7 commits/day, and ADR-0002's upgrade policy plus the spike self-test already catch a break.
 
 ## Dependency order
 
