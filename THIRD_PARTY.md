@@ -15,7 +15,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
 | kiddo | geom | MIT OR Apache-2.0 (_verify_) | linked | planned |
 | rdkit-sys → RDKit | chem (feature `rdkit`) | BSD-3-Clause (_verify_) | linked (FFI) | planned (ADR-0006) |
-| gpui-flow (fork) | ui-graph | _verify_ | linked | candidate (ADR-0004) |
+| gpui-flow (pacifio/gpui-flow @ `cfa5787`), edge geometry only (`src/edges/bezier.rs`, a port of xyflow's `getBezierPath`) | ui-graph | MIT (verified: upstream `LICENSE`, kept in `crates/ui-graph/src/vendor/gpui_flow/`) | vendored source (forked, compiled in) | in use; ADR-0004 (proposed) |
 | gpui-plot | ui-panels | _verify_ | linked | candidate |
 | Boltz-2 | workers/boltz2 | MIT | subprocess | planned |
 | AutoDock Vina | workers/vina | Apache-2.0 | subprocess | planned |
