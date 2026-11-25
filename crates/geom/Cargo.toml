@@ -14,6 +14,11 @@ kiddo.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "gate"
+harness = false
 
 [lints]
 workspace = true
