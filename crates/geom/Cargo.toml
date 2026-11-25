@@ -10,7 +10,7 @@ publish.workspace = true
 
 [dependencies]
 mold-mol.workspace = true
-# Planned: kiddo (KD-tree). Dev: proptest, criterion.
+kiddo.workspace = true
 
 [lints]
 workspace = true
