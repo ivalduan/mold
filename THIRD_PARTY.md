@@ -13,7 +13,9 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | pdbtbx 0.12 | mol | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use |
 | polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol); held below 0.54, which links tokio |
 | arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
-| kiddo | geom | MIT OR Apache-2.0 (_verify_) | linked | planned |
+| kiddo 6.3 (default features off: no rayon) | geom | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use |
+| proptest 1.12 | geom (dev-dependency) | MIT OR Apache-2.0 (verified: crates.io metadata) | linked into tests only | in use |
+| criterion 0.8 (default features off: no rayon, no plotters) | geom (dev-dependency) | Apache-2.0 OR MIT (verified: crates.io metadata) | linked into benches only | in use |
 | rdkit-sys → RDKit | chem (feature `rdkit`) | BSD-3-Clause (_verify_) | linked (FFI) | planned (ADR-0006) |
 | gpui-flow (fork) | ui-graph | _verify_ | linked | candidate (ADR-0004) |
 | gpui-plot | ui-panels | _verify_ | linked | candidate |
