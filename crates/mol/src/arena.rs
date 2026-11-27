@@ -10,6 +10,13 @@
 //! Every per-atom array has the same length and the same index space. Residue and
 //! chain indices stored per atom are **global** (index into [`Arena::residues`] /
 //! [`Arena::chains`]), so consumers never need to add per-pose offsets.
+//!
+//! # Bonds
+//! Bonds are optional, explicit connectivity from the input file (SDF today).
+//! They live in one arena-wide table, [`Arena::bonds`], with **global** atom
+//! indices like everything else, and each pose owns one contiguous run of it
+//! ([`Arena::pose_bonds`]). A pose read from PDB/mmCIF has no bonds: the arena
+//! never guesses them.
 
 use std::fmt;
 use std::ops::Range;
@@ -19,7 +26,7 @@ use crate::{Element, PoseId};
 /// An atom name of at most four ASCII characters (`"CA"`, `"OXT"`, `"CL1"`),
 /// stored inline so the per-atom name array holds no heap pointers.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct AtomName([u8; 4]);
+pub struct AtomName(pub(crate) [u8; 4]);
 
 impl AtomName {
     pub const MAX_LEN: usize = 4;
@@ -108,20 +115,83 @@ pub struct AtomRecord {
     pub formal_charge: i8,
 }
 
+/// Bond order as written in the input (V2000 bond types 1–4).
+///
+/// The same variants as `mold_geom::BondOrder`, so geom can adopt this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BondOrder {
+    Single,
+    Double,
+    Triple,
+    Aromatic,
+}
+
+impl BondOrder {
+    /// The V2000/V3000 bond type code (1–4).
+    pub const fn mdl_code(self) -> u8 {
+        match self {
+            BondOrder::Single => 1,
+            BondOrder::Double => 2,
+            BondOrder::Triple => 3,
+            BondOrder::Aromatic => 4,
+        }
+    }
+
+    /// From a V2000/V3000 bond type code; `None` for query types (5–8) and others.
+    pub const fn from_mdl_code(code: u8) -> Option<BondOrder> {
+        match code {
+            1 => Some(BondOrder::Single),
+            2 => Some(BondOrder::Double),
+            3 => Some(BondOrder::Triple),
+            4 => Some(BondOrder::Aromatic),
+            _ => None,
+        }
+    }
+}
+
+/// One bond between two atoms of the same pose. `a` and `b` are **global**
+/// atom indices (into [`Arena::positions`]), like every index in the arena.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Bond {
+    pub a: u32,
+    pub b: u32,
+    pub order: BondOrder,
+}
+
+impl Bond {
+    /// The bond with both atom indices made relative to `first_atom` (a pose's
+    /// `atoms.start`), for consumers that index a per-pose slice.
+    pub fn relative_to(self, first_atom: usize) -> Bond {
+        let base = first_atom as u32;
+        Bond {
+            a: self.a - base,
+            b: self.b - base,
+            order: self.order,
+        }
+    }
+}
+
 /// All atoms of all poses, struct-of-arrays. See the [module docs](self).
-#[derive(Debug, Clone, Default)]
+///
+/// Fields are crate-visible for the binary cache, which rebuilds an arena
+/// from validated parts; everyone else uses the read API.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Arena {
-    positions: Vec<[f32; 3]>,
-    elements: Vec<Element>,
-    atom_names: Vec<AtomName>,
-    residue_indices: Vec<u32>,
-    chain_indices: Vec<u32>,
-    b_factors: Vec<f32>,
-    occupancies: Vec<f32>,
-    formal_charges: Vec<i8>,
-    residues: Vec<Residue>,
-    chains: Vec<Chain>,
-    poses: Vec<Pose>,
+    pub(crate) positions: Vec<[f32; 3]>,
+    pub(crate) elements: Vec<Element>,
+    pub(crate) atom_names: Vec<AtomName>,
+    pub(crate) residue_indices: Vec<u32>,
+    pub(crate) chain_indices: Vec<u32>,
+    pub(crate) b_factors: Vec<f32>,
+    pub(crate) occupancies: Vec<f32>,
+    pub(crate) formal_charges: Vec<i8>,
+    pub(crate) residues: Vec<Residue>,
+    pub(crate) chains: Vec<Chain>,
+    pub(crate) poses: Vec<Pose>,
+    /// Every bond of every pose, global atom indices.
+    pub(crate) bonds: Vec<Bond>,
+    /// Per pose (parallel to `poses`): its run of `bonds`.
+    pub(crate) pose_bonds: Vec<Range<usize>>,
 }
 
 impl Arena {
@@ -235,6 +305,22 @@ impl Arena {
         Some(&mut self.positions[range])
     }
 
+    // ---- Bonds ---------------------------------------------------------------
+
+    /// Every bond of every pose, global atom indices, grouped by pose in pose order.
+    pub fn bonds(&self) -> &[Bond] {
+        &self.bonds
+    }
+
+    /// The pose's bonds (a sub-slice of [`Arena::bonds`]; empty if the input had
+    /// none, e.g. PDB/mmCIF). Atom indices are global: use
+    /// [`Bond::relative_to`]`(pose.atoms.start)` to index `pose_positions`.
+    pub fn pose_bonds(&self, id: PoseId) -> Option<&[Bond]> {
+        self.pose_bonds
+            .get(id.0 as usize)
+            .map(|r| &self.bonds[r.clone()])
+    }
+
     /// The pose that owns a global atom index (e.g. from a GPU pick).
     pub fn pose_of_atom(&self, atom: usize) -> Option<PoseId> {
         if atom >= self.atom_count() {
@@ -254,13 +340,15 @@ impl Arena {
             start_atoms: self.positions.len(),
             start_residues: self.residues.len(),
             start_chains: self.chains.len(),
+            start_bonds: self.bonds.len(),
             arena: self,
             name: name.into(),
             finished: false,
         }
     }
 
-    fn truncate(&mut self, atoms: usize, residues: usize, chains: usize) {
+    fn truncate(&mut self, atoms: usize, residues: usize, chains: usize, bonds: usize) {
+        self.bonds.truncate(bonds);
         self.positions.truncate(atoms);
         self.elements.truncate(atoms);
         self.atom_names.truncate(atoms);
@@ -286,6 +374,7 @@ pub struct PoseBuilder<'a> {
     start_atoms: usize,
     start_residues: usize,
     start_chains: usize,
+    start_bonds: usize,
     finished: bool,
 }
 
@@ -366,6 +455,21 @@ impl PoseBuilder<'_> {
         index
     }
 
+    /// Bond two atoms of this pose, by the **global** indices [`add_atom`](Self::add_atom)
+    /// returned. Validity beyond that (duplicates, valence) is the caller's business.
+    ///
+    /// # Panics
+    /// If either atom is not in this pose, or `a == b`.
+    pub fn add_bond(&mut self, a: u32, b: u32, order: BondOrder) {
+        let atoms = self.start_atoms..self.arena.positions.len();
+        assert!(
+            atoms.contains(&(a as usize)) && atoms.contains(&(b as usize)),
+            "bond {a}-{b} outside this pose's atoms {atoms:?}"
+        );
+        assert_ne!(a, b, "an atom cannot bond to itself");
+        self.arena.bonds.push(Bond { a, b, order });
+    }
+
     /// Number of atoms added to this pose so far.
     pub fn atom_count(&self) -> usize {
         self.arena.positions.len() - self.start_atoms
@@ -381,6 +485,7 @@ impl PoseBuilder<'_> {
             residues: self.start_residues..a.residues.len(),
             chains: self.start_chains..a.chains.len(),
         });
+        a.pose_bonds.push(self.start_bonds..a.bonds.len());
         self.finished = true;
         id
     }
@@ -389,8 +494,12 @@ impl PoseBuilder<'_> {
 impl Drop for PoseBuilder<'_> {
     fn drop(&mut self) {
         if !self.finished {
-            self.arena
-                .truncate(self.start_atoms, self.start_residues, self.start_chains);
+            self.arena.truncate(
+                self.start_atoms,
+                self.start_residues,
+                self.start_chains,
+                self.start_bonds,
+            );
         }
     }
 }
@@ -461,5 +570,86 @@ mod tests {
         assert_eq!(arena.residues().len(), 2);
         assert_eq!(arena.chains().len(), 1);
         assert_eq!(arena.pose_count(), 1);
+    }
+
+    fn bonded_pose(arena: &mut Arena, name: &str) -> PoseId {
+        let mut b = arena.begin_pose(name);
+        b.add_chain("L");
+        b.add_residue("LIG", 1, None, true);
+        let c1 = b.add_atom(atom("C1", 0.0));
+        let c2 = b.add_atom(atom("C2", 1.5));
+        let c3 = b.add_atom(atom("C3", 3.0));
+        b.add_bond(c1, c2, BondOrder::Single);
+        b.add_bond(c2, c3, BondOrder::Double);
+        b.finish()
+    }
+
+    #[test]
+    fn bonds_are_global_and_grouped_per_pose() {
+        let mut arena = Arena::new();
+        let p0 = two_atom_pose(&mut arena, "no bonds");
+        let p1 = bonded_pose(&mut arena, "a");
+        let p2 = bonded_pose(&mut arena, "b");
+        assert_eq!(arena.pose_bonds(p0).unwrap(), &[]);
+        assert_eq!(arena.bonds().len(), 4);
+        let b2 = arena.pose_bonds(p2).unwrap();
+        assert_eq!(
+            b2[1],
+            Bond {
+                a: 6,
+                b: 7,
+                order: BondOrder::Double
+            }
+        );
+        let start = arena.pose(p2).unwrap().atoms.start;
+        assert_eq!(
+            (b2[1].relative_to(start).a, b2[1].relative_to(start).b),
+            (1, 2)
+        );
+        assert_eq!(arena.pose_bonds(p1).unwrap()[0].a, 2);
+        assert_eq!(arena.pose_bonds(PoseId(3)), None);
+    }
+
+    #[test]
+    fn dropped_builder_rolls_back_bonds() {
+        let mut arena = Arena::new();
+        bonded_pose(&mut arena, "kept");
+        {
+            let mut b = arena.begin_pose("abandoned");
+            b.add_chain("L");
+            b.add_residue("LIG", 1, None, true);
+            let x = b.add_atom(atom("C1", 0.0));
+            let y = b.add_atom(atom("C2", 1.0));
+            b.add_bond(x, y, BondOrder::Triple);
+        }
+        assert_eq!(arena.bonds().len(), 2);
+        assert_eq!(arena.pose_count(), 1);
+        let p = bonded_pose(&mut arena, "next");
+        assert_eq!(arena.pose_bonds(p).unwrap().len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "outside this pose")]
+    fn bond_to_another_pose_panics() {
+        let mut arena = Arena::new();
+        two_atom_pose(&mut arena, "first");
+        let mut b = arena.begin_pose("second");
+        b.add_chain("L");
+        b.add_residue("LIG", 1, None, true);
+        let x = b.add_atom(atom("C1", 0.0));
+        b.add_bond(0, x, BondOrder::Single);
+    }
+
+    #[test]
+    fn bond_order_mdl_codes() {
+        for o in [
+            BondOrder::Single,
+            BondOrder::Double,
+            BondOrder::Triple,
+            BondOrder::Aromatic,
+        ] {
+            assert_eq!(BondOrder::from_mdl_code(o.mdl_code()), Some(o));
+        }
+        assert_eq!(BondOrder::from_mdl_code(8), None);
     }
 }
