@@ -12,6 +12,7 @@ pub mod arena;
 mod element;
 pub mod io;
 pub mod pose_table;
+pub mod sdf;
 mod selection;
 
 pub use arena::{Arena, AtomName, AtomRecord, Bond, BondOrder, Chain, Pose, PoseBuilder, Residue};
