@@ -11,6 +11,14 @@ publish.workspace = true
 [dependencies]
 pdbtbx = { workspace = true }
 polars = { workspace = true }
+blake3 = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "load"
+harness = false
 
 [lints]
 workspace = true

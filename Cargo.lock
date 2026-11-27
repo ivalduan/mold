@@ -4397,6 +4397,8 @@ dependencies = [
 name = "mold-mol"
 version = "0.0.0"
 dependencies = [
+ "blake3",
+ "criterion",
  "pdbtbx",
  "polars",
 ]

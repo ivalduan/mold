@@ -9,12 +9,14 @@
 //! No GPUI, no async. See `CLAUDE.md` in this crate for scope and acceptance tests.
 
 pub mod arena;
+pub mod cache;
 mod element;
 pub mod io;
 pub mod pose_table;
+pub mod sdf;
 mod selection;
 
-pub use arena::{Arena, AtomName, AtomRecord, Chain, Pose, PoseBuilder, Residue};
+pub use arena::{Arena, AtomName, AtomRecord, Bond, BondOrder, Chain, Pose, PoseBuilder, Residue};
 pub use element::Element;
 pub use io::{AltLocPolicy, Format, IoError, LoadOptions};
 pub use selection::Selection;
