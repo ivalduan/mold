@@ -19,7 +19,10 @@ use crate::node::{NodeSpec, Registry};
 use crate::param::{ParamKind, ParamValue, Params};
 use crate::policy::{FailurePolicy, OnFailure};
 
-/// Stable node id, unique within a graph. Survives save/load and undo.
+/// Stable node id, unique within a graph: assigned at creation
+/// ([`Graph::fresh_id`]) and **never changed afterwards**. Edges, layout, provenance,
+/// undo history and the selection all refer to it; what the user sees and edits is
+/// the free-text [`NodeData::label`]. Survives save/load and undo.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct NodeId(pub String);
@@ -75,6 +78,11 @@ impl From<&str> for OutputRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeData {
     pub kind: String,
+    /// Display label: free text, optional, may repeat across nodes, editable any time
+    /// ([`Edit::SetLabel`]). `None` = the UI shows the kind's display name. Never an
+    /// identity (that is the [`NodeId`]) and not part of any cache key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// Which executor runs this node (in-process threads, local subprocess, SSH, farm):
     /// a key resolved by [`Engine::add_executor`](crate::Engine::add_executor).
     /// `None` = the graph's default, else the engine's. Not part of any cache key.
@@ -111,6 +119,7 @@ impl NodeData {
     pub fn new(kind: impl Into<String>) -> Self {
         Self {
             kind: kind.into(),
+            label: None,
             executor: None,
             retries: 0,
             timeout: None,
@@ -162,6 +171,23 @@ pub enum Edit {
         node: NodeId,
         name: String,
         value: Option<ParamValue>,
+    },
+    /// Set or clear (`None`) a node's display label. The id never changes.
+    SetLabel {
+        node: NodeId,
+        label: Option<String>,
+    },
+    /// Set or clear (`None`) a node's executor key.
+    SetExecutor {
+        node: NodeId,
+        executor: Option<String>,
+    },
+    /// Set a node's whole failure policy (ADR-0009 §7).
+    SetFailurePolicy {
+        node: NodeId,
+        retries: u32,
+        timeout: Option<f64>,
+        on_failure: OnFailure,
     },
     /// Binds `to.input` to `from`, replacing any existing binding.
     Connect {
@@ -278,7 +304,9 @@ impl Graph {
         self.nodes.contains_key(id)
     }
 
-    /// A fresh id `"{kind}-{n}"`, smallest `n >= 1` not in use.
+    /// A fresh id `"{kind}-{n}"`, smallest `n >= 1` not in use. Assign it once, at
+    /// creation: a node's id never changes afterwards (relabel with
+    /// [`Edit::SetLabel`] instead).
     pub fn fresh_id(&self, kind: &str) -> NodeId {
         (1..)
             .map(|n| NodeId(format!("{kind}-{n}")))
@@ -472,6 +500,45 @@ impl Graph {
                     node,
                     name,
                     value: old,
+                })
+            }
+            Edit::SetLabel { node, label } => {
+                let data = self
+                    .nodes
+                    .get_mut(&node)
+                    .ok_or_else(|| GraphError::UnknownNode(node.clone()))?;
+                let label = std::mem::replace(&mut data.label, label);
+                Ok(Edit::SetLabel { node, label })
+            }
+            Edit::SetExecutor { node, executor } => {
+                let data = self
+                    .nodes
+                    .get_mut(&node)
+                    .ok_or_else(|| GraphError::UnknownNode(node.clone()))?;
+                let executor = std::mem::replace(&mut data.executor, executor);
+                Ok(Edit::SetExecutor { node, executor })
+            }
+            Edit::SetFailurePolicy {
+                node,
+                retries,
+                timeout,
+                on_failure,
+            } => {
+                let data = self
+                    .nodes
+                    .get(&node)
+                    .ok_or_else(|| GraphError::UnknownNode(node.clone()))?;
+                let mut new = data.clone();
+                new.retries = retries;
+                new.timeout = timeout;
+                new.on_failure = on_failure;
+                check_policy(&node, &new)?;
+                let old = std::mem::replace(self.nodes.get_mut(&node).expect("checked"), new);
+                Ok(Edit::SetFailurePolicy {
+                    node,
+                    retries: old.retries,
+                    timeout: old.timeout,
+                    on_failure: old.on_failure,
                 })
             }
             Edit::Connect { from, to, input } => {

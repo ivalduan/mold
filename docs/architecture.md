@@ -76,7 +76,7 @@ Three structures carry the application. Get them right in week 1 and the panels 
    ```
 3. **Selection bus**. One `Selection` (set of `PoseId` + optional atom mask) broadcast to every panel; no panel owns it. Plot click and table click publish; the viewport subscribes and re-aims. A day-one primitive.
 
-**Graph schema.** Typed ports: `Structure`, `Sequence`, `LigandSet`, `Msa`, `PoseSet`, `Table`, `Scalar`. Mismatched connections are refused at drag time. Each node: stable `id`, `kind`, parameter map, input bindings: the same shape in memory and in the recipe.
+**Graph schema.** Typed ports: `Structure`, `Sequence`, `LigandSet`, `Msa`, `PoseSet`, `Table`, `Scalar`. Mismatched connections are refused at drag time. Each node: stable `id` (assigned at creation, never renamed), optional display `label`, `kind`, parameter map, input bindings: the same shape in memory and in the recipe.
 
 **Undo** is command-pattern over graph edits only. Pose data is derived: recomputed or read from cache, never undone.
 

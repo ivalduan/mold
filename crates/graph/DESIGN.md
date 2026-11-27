@@ -6,7 +6,7 @@ Work-item model after Houdini PDG/TOPs ([intro](https://www.sidefx.com/docs/houd
 
 | Level | Type | Who owns it | Persisted |
 |---|---|---|---|
-| Node graph | `Graph` (`NodeId → NodeData { kind, executor?, retries, timeout?, on_failure, params, inputs }`) | the user, via `Editor`/`History` | yes: `recipe` projects it to TOML |
+| Node graph | `Graph` (`NodeId → NodeData { kind, label?, executor?, retries, timeout?, on_failure, params, inputs }`) | the user, via `Editor`/`History` | yes: `recipe` projects it to TOML |
 | Work-item graph | `ItemGraph` (`WorkItem`s) | the `Engine`, regenerated per cook | no: derived; results live in the `Cache` |
 
 Edges live on the consumer (`inputs: port → OutputRef { node, port }`), so an input has at most one source. Serialized shape:
@@ -18,7 +18,9 @@ params = { max_clashes = 2 }
 inputs = { poses = { node = "cofold", port = "poses" } }
 ```
 
-Edits (`Edit::{AddNode, RemoveNode, SetParam, Connect, Disconnect, Batch}`) are validated against the `Registry`: unknown kind/param/port, wrong param kind, `PortType::accepts` mismatch and cycles are refused; a refused edit leaves the graph untouched. `Graph::apply` returns the inverse edit; `History` keeps (forward, inverse) pairs. Undo never touches items or the cache: going back to an earlier graph makes its items' keys match again, so they come back as cache hits.
+**Id vs label.** A node's `NodeId` is assigned once, at creation (`Graph::fresh_id(kind)` → `cofold-1`, `cofold-2`), and is **frozen**: no edit renames it. Edges, layout, provenance, undo history and the `Selection` refer to the id. What the user reads and edits is `NodeData.label: Option<String>`: free text, may repeat across nodes, `None` = the UI shows the kind's display name. The label is not in any cache key (like `executor` and the failure policy), so relabelling re-cooks nothing; it serializes right after `kind` and only when set, so old graphs and recipes load unchanged.
+
+Edits (`Edit::{AddNode, RemoveNode, SetParam, SetLabel, SetExecutor, SetFailurePolicy, Connect, Disconnect, Batch}`) are validated against the `Registry`: unknown kind/param/port, wrong param kind, `PortType::accepts` mismatch and cycles are refused; a refused edit leaves the graph untouched. `Graph::apply` returns the inverse edit; `History` keeps (forward, inverse) pairs. Undo never touches items or the cache: going back to an earlier graph makes its items' keys match again, so they come back as cache hits.
 
 ## Node roles
 
@@ -181,8 +183,8 @@ impl EventSink { fn event(&mut self, &serde_json::Value) -> Result<(), NodeError
   - *retries*: a failed attempt (anything but `Cancelled`, including `Lost` and `TimedOut`) is resubmitted as a new job with `attempt + 1`, until `retries` run out. A retry must use a fresh run directory (the executor's job: name it after `attempt`).
   - *timeout*: counted from the executor's `started` report, per attempt. On expiry the engine cancels that job's token, calls `Executor::cancel`, and the attempt fails with `NodeError::TimedOut`; its late report is discarded. An in-process cook stops only if it polls `ctx.cancel`.
   - *on_failure*: `error` = today's behaviour (descendants cancelled; a partition with a failed member is cancelled). `warn`/`ignore` = the item is still `Failed` and its own descendants cancelled, but fan-in goes on without it: a partition drops members that failed this way, or were cancelled only because of such failures, and cooks with the rest. Independent items finish under every policy. graph treats `warn` and `ignore` alike; the UI reads `NodeData.on_failure` to show a warning or not.
-- Not built: undoable edits of executor/policy fields (no `Edit` variant yet; recipes set them); slot accounting in `ThreadExecutor`.
+- Undoable edits: `Edit::SetExecutor` and `Edit::SetFailurePolicy` (whole policy at once; a bad timeout is refused). Not built: slot accounting in `ThreadExecutor`.
 
 ## Deferred (follow-ups)
 
-Subprocess/external executors (`mold-jobs`, behind the command path above); services/persistent worker pools; batch items; mappers; `@attr` parameter expressions; partitions that close before all upstream items finish; cache eviction, cross-process locking and remote caches; incremental re-cook of a live item graph (today each cook regenerates, O(items) per event); `Edit` variants for `executor` and the failure policy; honouring `Needs.slots` in `ThreadExecutor`.
+Subprocess/external executors (`mold-jobs`, behind the command path above); services/persistent worker pools; batch items; mappers; `@attr` parameter expressions; partitions that close before all upstream items finish; cache eviction, cross-process locking and remote caches; incremental re-cook of a live item graph (today each cook regenerates, O(items) per event); honouring `Needs.slots` in `ThreadExecutor`.

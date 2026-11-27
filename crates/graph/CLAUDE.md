@@ -28,10 +28,12 @@ Read [docs/architecture.md](../../docs/architecture.md#execution-engine) first, 
 - [x] Mismatched-port and cycle connections are refused.
 - [x] Cache hit across process restarts from the run directory (`RunDirCache` + payload codecs; the test re-runs its own binary as the first process).
 - [x] Command path ([tests/command.rs](tests/command.rs)): a fake command executor replays a worker event stream; partials arrive before the item finishes; outputs, cache entries and keys match the Rust-native cook whichever executor runs it; the in-process executor refuses a command item clearly; cancel mid-run writes no cache entry.
+- [x] Id vs label ([tests/label.rs](tests/label.rs)): ids are frozen at creation; `label` is not in keys (relabelling re-cooks nothing), `SetLabel` undo round-trips, labels may repeat, old graphs load.
 - [x] Failure policy ([tests/failure_policy.rs](tests/failure_policy.rs)): old graphs load with defaults; policy not in keys; `warn`/`ignore` let fan-in finish; retries; timeout (alone and retried).
 
 ## Design notes
 Details in [DESIGN.md](DESIGN.md). In short:
+- **Id vs label**: `NodeId` is assigned at creation and never changes; `NodeData.label` is free, optional, repeatable display text (`Edit::SetLabel`), outside cache keys.
 - **Values** are a `PortType` tag plus `Arc<dyn Any + Send + Sync>`: payload types live in other crates (some not written yet) and plugins add their own; `Arc` makes fan-out and inspection free.
 - **Input modes**: one `PerItem` input (parent, attribute inheritance) plus any number of `Broadcast` inputs (exactly one upstream item, e.g. the receptor).
 - **Generate when**: `EachUpstreamGenerated` (static, default), `EachUpstreamCooked` and `AllUpstreamCooked` (dynamic). Houdini's "all upstream generated" is omitted on purpose.
