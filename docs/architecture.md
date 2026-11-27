@@ -88,8 +88,12 @@ PDG-style, per [ADR-0010](../adr/0010-work-item-graph.md):
 - **Per-item content-hash cache and dirtying**: key = hash(node kind + params + parent items' attribute/output hashes). Changing only the gate threshold re-cooks only gate items and their descendants. *This single feature is what makes it feel unlike a script.*
 - **Executor seam per item**, see "Execution flavours" below.
 
-## Execution flavours (open: ADR-0009)
-Node work must run with parity in three flavours, like Houdini TOPs schedulers: **in-process** (threads, for Rust-native nodes), **subprocess** (local workers, incl. WSL2), and **external orchestration** (SSH, Slurm, cloud, farms). There is a default per graph, overridable per node. The graph decides *what* is ready; an executor decides *where and how* it runs. `mold-graph` owns that seam and ships only the in-process executor. The rest of the design is open in [ADR-0009](../adr/0009-execution-flavours.md).
+## Execution flavours (ADR-0009)
+Node work runs with parity in three flavours, like Houdini TOPs schedulers: **in-process** (threads, for Rust-native nodes), **subprocess** (local workers, incl. WSL2) and **external** (SSH in v0.1; Slurm, cloud and farms later). The graph decides *what* is ready; an executor decides *where and how* it runs. Per [ADR-0009](../adr/0009-execution-flavours.md):
+- **Worker nodes cook in three phases**: *prepare* (in the app: inputs into the run directory, a `JobSpec`) → *run* (anywhere: the worker protocol) → *collect* (in the app: each `pose` event becomes a partial output as it arrives). Only *run* differs between flavours, so parity holds by construction.
+- **Executor keys** in the recipe (default per graph, override per node) resolve through user/site profiles, never the recipe; they are not part of cache keys. Remote profiles are announced in the UI before data leaves the machine.
+- **No shared filesystem assumed**: the executor stages the run directory in and out.
+- Items declare `slots`/`gpus`/`mem_gb`; profiles declare capacity. Failure policy (retries, timeout, on-failure) is per node.
 
 ## Workers
 Solver workers are separate processes; the current protocol draft is deliberately boring: see [worker-protocol.md](worker-protocol.md). Environments are declared in a manifest, never managed. The `mock-cofold` worker is a first-class deliverable.

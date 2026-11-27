@@ -36,4 +36,4 @@ Score keys should use the pose-table column names (`plddt`, `iptm`, `affinity_pr
 `name`, `executable`, `environment` (declared, never installed by the app), `needs_gpu`, `model`, `model_version` (pinned deliberately), `license`. The app validates it and reports a clear error if something is missing.
 
 ## Backends
-Open: see [ADR-0009](../adr/0009-execution-flavours.md) (in-process / subprocess / external parity). Whatever is decided, the job spec and event stream must not change between local and remote execution: that's the test of whether this protocol is designed right.
+Decided in [ADR-0009](../adr/0009-execution-flavours.md): this protocol is the payload of **every** execution flavour. The `local` executor (incl. WSL2 via a `wsl.exe` prefix) and the `ssh` executor (stdio over the SSH connection, run directory staged in and out) send the same `JobSpec` and read the same event stream; Slurm and other batch schedulers later append the same lines to `run_dir/events.ndjson`. The job spec and event stream must not change between local and remote execution: that's the test of whether this protocol is designed right.
