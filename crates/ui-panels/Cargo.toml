@@ -15,6 +15,13 @@ mold-mol.workspace = true
 # permutation itself (no polars sort/lazy features, no tokio; see CLAUDE.md).
 polars.workspace = true
 
+# The GPUI views, like ui-graph and ui-viewport, are built on Windows only for now
+# (ADR-0002/0003): Linux CI builds and tests the headless core with no system
+# packages. "component" = GPUI Kit's component layer (the virtualized table).
+[target.'cfg(windows)'.dependencies]
+gpui-kit = { workspace = true, features = ["component"] }
+gpui-fast.workspace = true
+
 [dev-dependencies]
 criterion.workspace = true
 
