@@ -4446,7 +4446,9 @@ dependencies = [
 name = "mold-ui-panels"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "mold-mol",
+ "polars",
 ]
 
 [[package]]
