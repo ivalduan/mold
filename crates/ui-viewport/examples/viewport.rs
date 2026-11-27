@@ -1,22 +1,25 @@
-//! WS-00 viewport spike (ADR-0003). SPIKE CODE: not the app shell.
+//! The molecular viewport (ADR-0003) with `mold-render` behind it: a real
+//! structure, spheres / ball & stick / sticks, GPU picking, re-aim on click.
+//! Not the app shell.
 //!
 //! ```text
-//! cargo run -p mold-ui-viewport --example spike --release
-//! cargo run -p mold-ui-viewport --example spike --release -- --self-test
+//! cargo run -p mold-ui-viewport --example viewport --release
+//! cargo run -p mold-ui-viewport --example viewport --release -- path/to/a.cif other.pdb
+//! cargo run -p mold-ui-viewport --example viewport --release -- --self-test
 //! ```
 //!
-//! A GPUI Kit window with a toolbar, a dropdown menu and a right-click context
-//! menu that open over a wgpu viewport drawing 500 sphere impostors. Left-click
-//! an atom to pick it and re-aim the camera (latency printed); drag to orbit;
-//! wheel to zoom; "Hide viewport" exercises the empty-bounds hide path.
+//! With no paths it loads `fixtures/egfr/reference.cif` (EGFR + gefitinib)
+//! twice, the second copy shifted 70 Å along x, so there are two poses.
+//! Left-click an atom to pick it (pose + atom printed) and re-aim; left-drag
+//! orbits, middle-drag pans, the wheel zooms; right-click opens a menu.
 //!
-//! `--self-test` drives the same paths without a mouse and exits non-zero if a
-//! check fails: overlay menu open over the viewport, UI-thread stalls while the
-//! render thread is slow, ten synthetic clicks, hide and show.
+//! `--self-test` drives the same paths without a mouse and exits non-zero if
+//! a check fails: overlay menu over the viewport, representations, UI-thread
+//! stalls while the render thread is slow, ten synthetic clicks, hide/show.
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("The viewport spike has a Windows backend only (ADR-0003).");
+    eprintln!("The viewport has a Windows backend only (ADR-0003).");
 }
 
 #[cfg(windows)]
@@ -26,35 +29,49 @@ fn main() {
 
 #[cfg(windows)]
 mod app {
+    use std::path::PathBuf;
     use std::rc::Rc;
-    use std::sync::mpsc;
+    use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
     use gpui_kit::component::button::{Button, ButtonVariants as _};
     use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
     use gpui_kit::*;
-    use mold_ui_viewport::backend::native_backend;
+    use mold_mol::{Arena, PoseId};
+    use mold_render::host::{Event, Msg, PickReport, RenderHost, Stats};
+    use mold_render::{Representation, guess_bonds};
+    use mold_ui_viewport::backend::{native_backend, wgpu_backends};
     use mold_ui_viewport::element::{Viewport, ViewportElement};
-    use mold_ui_viewport::spike::renderer::{Event, Msg, PickReport, RenderHost, Stats};
-    use mold_ui_viewport::spike::scene::{ATOM_COUNT, spike_scene};
 
     const BUDGET_MS: f32 = 100.0;
 
     pub fn run() {
         let self_test = std::env::args().any(|arg| arg == "--self-test");
+        let paths: Vec<PathBuf> = std::env::args()
+            .skip(1)
+            .filter(|arg| !arg.starts_with("--"))
+            .map(PathBuf::from)
+            .collect();
+        let arena = match load(&paths) {
+            Ok(arena) => Arc::new(arena),
+            Err(error) => {
+                eprintln!("loading structures: {error}");
+                std::process::exit(2);
+            }
+        };
         application().run(move |cx: &mut App| {
             gpui_kit::init(cx);
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Mold · viewport spike (WS-00)".into()),
+                    title: Some("Mold · viewport (mold-render)".into()),
                     ..Default::default()
                 }),
                 ..Default::default()
             };
             let opened = gpui_kit::open_window(options, cx, move |window, cx| {
-                Spike::new(self_test, window, cx)
+                Demo::new(arena, self_test, window, cx)
             });
             if let Err(error) = opened {
                 eprintln!("failed to open the window: {error:#}");
@@ -70,10 +87,44 @@ mod app {
         });
     }
 
-    struct Spike {
+    /// The given files, one pose per model; or the EGFR fixture twice, the
+    /// second copy moved aside.
+    fn load(paths: &[PathBuf]) -> Result<Arena, String> {
+        let mut arena = Arena::new();
+        let options = Default::default();
+        if paths.is_empty() {
+            let fixture =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/egfr/reference.cif");
+            for _ in 0..2 {
+                mold_mol::io::read_file(&mut arena, &fixture, &options)
+                    .map_err(|e| format!("{}: {e}", fixture.display()))?;
+            }
+            if let Some(second) = arena.pose_positions_mut(PoseId(1)) {
+                for p in second {
+                    p[0] += 70.0;
+                }
+            }
+        } else {
+            for path in paths {
+                mold_mol::io::read_file(&mut arena, path, &options)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+        }
+        if arena.atom_count() == 0 {
+            return Err("no atoms".into());
+        }
+        Ok(arena)
+    }
+
+    struct Demo {
         // Dropped before `host`: the render thread outlives the surface.
         viewport: Option<Rc<Viewport>>,
         host: Rc<RenderHost>,
+        arena: Arc<Arena>,
+        bonds: usize,
+        representation: Representation,
+        /// `None`: all poses.
+        shown_pose: Option<PoseId>,
         failure: Option<String>,
         stats: Stats,
         last_pick: Option<PickReport>,
@@ -90,10 +141,15 @@ mod app {
         frames_when_hidden: Option<u64>,
     }
 
-    impl Spike {
-        fn new(self_test: bool, window: &mut Window, cx: &mut App) -> Entity<Self> {
+    impl Demo {
+        fn new(
+            arena: Arc<Arena>,
+            self_test: bool,
+            window: &mut Window,
+            cx: &mut App,
+        ) -> Entity<Self> {
             let (events_tx, events) = mpsc::channel();
-            let host = match RenderHost::new(spike_scene(), events_tx) {
+            let host = match RenderHost::new(wgpu_backends(), events_tx) {
                 Ok(host) => Rc::new(host),
                 Err(error) => {
                     eprintln!("viewport: {error}");
@@ -101,6 +157,20 @@ mod app {
                 }
             };
             println!("viewport adapter: {}", host.adapter);
+            let started = Instant::now();
+            let bonds = guess_bonds(&arena);
+            println!(
+                "{} atoms in {} poses, {} bonds guessed in {:.0} ms",
+                arena.atom_count(),
+                arena.pose_count(),
+                bonds.len(),
+                started.elapsed().as_secs_f32() * 1000.0
+            );
+            let bond_count = bonds.len();
+            host.send(Msg::LoadScene {
+                arena: arena.clone(),
+                bonds,
+            });
             let backend = native_backend().expect("this platform has a viewport backend");
             let (viewport, failure) = match Viewport::new(window, backend.as_ref(), &host) {
                 Ok(viewport) => (Some(viewport), None),
@@ -119,6 +189,10 @@ mod app {
                 Self {
                     viewport,
                     host,
+                    arena,
+                    bonds: bond_count,
+                    representation: Representation::default(),
+                    shown_pose: None,
                     failure,
                     stats: Stats::default(),
                     last_pick: None,
@@ -152,6 +226,41 @@ mod app {
             cx.notify();
         }
 
+        fn set_representation(&mut self, representation: Representation, cx: &mut Context<Self>) {
+            self.representation = representation;
+            self.send(Msg::SetRepresentation(representation));
+            cx.notify();
+        }
+
+        /// All poses → pose 0 → pose 1 → … → all.
+        fn next_pose(&mut self, cx: &mut Context<Self>) {
+            let count = self.arena.pose_count() as u32;
+            self.shown_pose = match self.shown_pose {
+                None if count > 1 => Some(PoseId(0)),
+                Some(PoseId(i)) if i + 1 < count => Some(PoseId(i + 1)),
+                _ => None,
+            };
+            self.send(Msg::ShowOnly(self.shown_pose));
+            cx.notify();
+        }
+
+        /// "pose 1 · atom #2400 · CA LEU 718 A".
+        fn describe(&self, report: &PickReport) -> Option<String> {
+            let hit = report.hit?;
+            let arena = &self.arena;
+            let atom = hit.atom as usize;
+            let residue = &arena.residues()[arena.residue_indices()[atom] as usize];
+            let chain = &arena.chains()[arena.chain_indices()[atom] as usize];
+            Some(format!(
+                "pose {} · atom #{atom} · {} {} {} {}",
+                hit.pose.0,
+                arena.atom_names()[atom],
+                residue.name,
+                residue.seq_num,
+                chain.id
+            ))
+        }
+
         fn on_event(&mut self, event: Event, cx: &mut Context<Self>) {
             match event {
                 Event::Ready => println!("viewport: first frame presented"),
@@ -169,12 +278,17 @@ mod app {
                 Event::ContextMenu { window_x, window_y } => {
                     self.context_menu = Some(point(px(window_x), px(window_y)));
                 }
+                Event::SceneLoaded {
+                    atoms,
+                    bonds,
+                    poses,
+                } => println!("scene on the GPU: {atoms} atoms, {bonds} bonds, {poses} poses"),
                 Event::Picked(report) => {
-                    match (report.atom, report.click_to_present_ms) {
-                        (Some(atom), Some(ms)) => {
+                    match (self.describe(&report), report.click_to_present_ms) {
+                        (Some(what), Some(ms)) => {
                             self.latencies_ms.push(ms);
                             println!(
-                                "pick: atom #{atom} | ray cast {:.0} us | click -> re-aimed frame \
+                                "pick: {what} | GPU readback {:.0} us | click -> re-aimed frame \
                                  presented {ms:.1} ms (budget {BUDGET_MS} ms) | centring error \
                                  {:.2} px",
                                 report.pick_us,
@@ -196,13 +310,13 @@ mod app {
         }
 
         fn hud(&self) -> impl IntoElement {
-            let pick = match self.last_pick {
-                Some(PickReport {
-                    atom: Some(atom),
-                    click_to_present_ms: Some(ms),
-                    ..
-                }) => format!("atom #{atom} · click → re-aimed {ms:.1} ms (budget {BUDGET_MS})"),
-                Some(_) => "nothing under the pointer".to_string(),
+            let pick = match &self.last_pick {
+                Some(report) => match (self.describe(report), report.click_to_present_ms) {
+                    (Some(what), Some(ms)) => {
+                        format!("{what} · click → re-aimed {ms:.1} ms (budget {BUDGET_MS})")
+                    }
+                    _ => "nothing under the pointer".to_string(),
+                },
                 None => "left-click an atom".to_string(),
             };
             let fps = if self.stats.fps < 0.5 {
@@ -212,6 +326,10 @@ mod app {
                     "{:.0} fps · {:.2} ms/frame on the render thread (incl. vsync wait) · {} frames",
                     self.stats.fps, self.stats.cpu_frame_ms, self.stats.frames_total
                 )
+            };
+            let poses = match self.shown_pose {
+                None => format!("all {} poses", self.arena.pose_count()),
+                Some(pose) => format!("pose {} of {}", pose.0, self.arena.pose_count()),
             };
             div()
                 .absolute()
@@ -231,7 +349,13 @@ mod app {
                         .child("GPUI overlay (deferred), above the wgpu surface"),
                 )
                 .child(format!(
-                    "{ATOM_COUNT} impostor spheres · {} · {}x{}",
+                    "{} atoms · {} bonds · {poses} · {}",
+                    self.arena.atom_count(),
+                    self.bonds,
+                    self.representation.label()
+                ))
+                .child(format!(
+                    "{} · {}x{}",
                     self.host.adapter, self.stats.width, self.stats.height
                 ))
                 .child(fps)
@@ -274,6 +398,13 @@ mod app {
                             .text_color(rgb(0x9aa3b2))
                             .child("GPUI context menu"),
                     )
+                    .child(
+                        item("cm-fit", "Fit to view").on_click(cx.listener(|this, _, _, cx| {
+                            this.context_menu = None;
+                            this.send(Msg::Fit);
+                            cx.notify();
+                        })),
+                    )
                     .child(item("cm-spin", "Spin on / off").on_click(cx.listener(
                         |this, _, _, cx| {
                             this.context_menu = None;
@@ -298,57 +429,86 @@ mod app {
         }
     }
 
-    impl Render for Spike {
+    impl Render for Demo {
         fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let entity = cx.entity();
             let visible = self.visible();
-            let toolbar =
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .bg(rgb(0x161a22))
-                    .border_b_1()
-                    .border_color(rgb(0x2a2f3a))
-                    .child(Button::new("view-menu").label("View ▾").dropdown_menu(
-                        move |menu, _, _| {
-                            let spin_on = entity.clone();
-                            let spin_off = entity.clone();
-                            let slow = entity.clone();
-                            let toggle = entity.clone();
-                            menu.label("GPUI Kit popup menu")
-                                .item(PopupMenuItem::new("Spin").on_click(move |_, _, cx| {
-                                    spin_on.read(cx).send(Msg::SetSpin(true));
-                                }))
-                                .item(PopupMenuItem::new("Stop spinning").on_click(
-                                    move |_, _, cx| {
-                                        spin_off.read(cx).send(Msg::SetSpin(false));
-                                        spin_off.read(cx).send(Msg::SetFrameDelay(Duration::ZERO));
-                                    },
-                                ))
-                                .item(PopupMenuItem::new("Spin with 150 ms frames").on_click(
-                                    move |_, _, cx| {
-                                        slow.read(cx).send(Msg::SetSpin(true));
-                                        slow.read(cx)
-                                            .send(Msg::SetFrameDelay(Duration::from_millis(150)));
-                                    },
-                                ))
-                                .separator()
-                                .item(PopupMenuItem::new("Hide / show viewport").on_click(
-                                    move |_, _, cx| {
-                                        toggle.update(cx, |this, cx| {
-                                            let visible = this.visible();
-                                            this.set_visible(!visible, cx);
-                                        });
-                                    },
-                                ))
-                        },
-                    ))
+            let mut toolbar = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .bg(rgb(0x161a22))
+                .border_b_1()
+                .border_color(rgb(0x2a2f3a))
+                .child(Button::new("view-menu").label("View ▾").dropdown_menu(
+                    move |menu, _, _| {
+                        let spin_on = entity.clone();
+                        let spin_off = entity.clone();
+                        let slow = entity.clone();
+                        let toggle = entity.clone();
+                        menu.label("GPUI Kit popup menu")
+                            .item(PopupMenuItem::new("Spin").on_click(move |_, _, cx| {
+                                spin_on.read(cx).send(Msg::SetSpin(true));
+                            }))
+                            .item(
+                                PopupMenuItem::new("Stop spinning").on_click(move |_, _, cx| {
+                                    spin_off.read(cx).send(Msg::SetSpin(false));
+                                    spin_off.read(cx).send(Msg::SetFrameDelay(Duration::ZERO));
+                                }),
+                            )
+                            .item(PopupMenuItem::new("Spin with 150 ms frames").on_click(
+                                move |_, _, cx| {
+                                    slow.read(cx).send(Msg::SetSpin(true));
+                                    slow.read(cx)
+                                        .send(Msg::SetFrameDelay(Duration::from_millis(150)));
+                                },
+                            ))
+                            .separator()
+                            .item(PopupMenuItem::new("Hide / show viewport").on_click(
+                                move |_, _, cx| {
+                                    toggle.update(cx, |this, cx| {
+                                        let visible = this.visible();
+                                        this.set_visible(!visible, cx);
+                                    });
+                                },
+                            ))
+                    },
+                ));
+            for (id, representation) in [
+                ("rep-spheres", Representation::SpaceFilling),
+                ("rep-ball", Representation::BallAndStick),
+                ("rep-sticks", Representation::Sticks),
+            ] {
+                let button = Button::new(id).label(representation.label());
+                let button = if self.representation == representation {
+                    button.primary()
+                } else {
+                    button
+                };
+                toolbar = toolbar.child(button.on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_representation(representation, cx);
+                })));
+            }
+            let poses_label = match self.shown_pose {
+                None => "Poses: all".to_string(),
+                Some(pose) => format!("Pose {}", pose.0),
+            };
+            toolbar =
+                toolbar
+                    .child(
+                        Button::new("poses")
+                            .label(poses_label)
+                            .on_click(cx.listener(|this, _, _, cx| this.next_pose(cx))),
+                    )
+                    .child(
+                        Button::new("fit")
+                            .label("Fit")
+                            .on_click(cx.listener(|this, _, _, _| this.send(Msg::Fit))),
+                    )
                     .child(
                         Button::new("toggle")
-                            .primary()
                             .label(if visible {
                                 "Hide viewport"
                             } else {
@@ -359,7 +519,7 @@ mod app {
                             })),
                     )
                     .child(div().text_sm().text_color(rgb(0x9aa3b2)).child(
-                        "left-click: pick + re-aim · drag: orbit · wheel: zoom · right-click: menu",
+                        "click: pick + re-aim · drag: orbit · middle-drag: pan · wheel: zoom",
                     ));
 
             let mut area = div()
@@ -428,7 +588,7 @@ mod app {
 
     /// Render-thread events → UI thread, without blocking it: a background
     /// task waits on the channel.
-    fn pump_events(events: mpsc::Receiver<Event>, cx: &mut Context<Spike>) {
+    fn pump_events(events: mpsc::Receiver<Event>, cx: &mut Context<Demo>) {
         cx.spawn(async move |this, cx| {
             let mut events = events;
             loop {
@@ -453,7 +613,7 @@ mod app {
 
     /// A 16 ms tick on the UI thread: how late it fires is how long the UI
     /// thread was blocked.
-    fn measure_ui_stalls(cx: &mut Context<Spike>) {
+    fn measure_ui_stalls(cx: &mut Context<Demo>) {
         cx.spawn(async move |this, cx| {
             const TICK: Duration = Duration::from_millis(16);
             let started = Instant::now();
@@ -477,7 +637,7 @@ mod app {
     }
 
     /// Phases, each held long enough to screenshot. Prints `PHASE <name>`.
-    fn run_self_test(cx: &mut Context<Spike>) {
+    fn run_self_test(cx: &mut Context<Demo>) {
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
             let phase =
@@ -495,16 +655,25 @@ mod app {
             .ok();
             wait(3000).await;
 
+            for representation in Representation::ALL {
+                phase(&format!("representation-{representation:?}"));
+                this.update(cx, |this, cx| {
+                    this.context_menu = None;
+                    this.set_representation(representation, cx);
+                })
+                .ok();
+                wait(1500).await;
+            }
+
             phase("slow-frames");
             this.update(cx, |this, cx| {
-                this.context_menu = None;
                 this.worst_ui_stall_ms = 0.0;
                 this.send(Msg::SetFrameDelay(Duration::from_millis(150)));
                 cx.notify();
             })
             .ok();
             wait(2500).await;
-            this.update(cx, |this, _| {
+            this.update(cx, |this, cx| {
                 let stall = this.worst_ui_stall_ms;
                 println!("UI thread worst stall during 150 ms render frames: {stall:.1} ms");
                 if stall > 50.0 {
@@ -514,15 +683,21 @@ mod app {
                 }
                 this.send(Msg::SetFrameDelay(Duration::ZERO));
                 this.send(Msg::SetSpin(false));
+                this.set_representation(Representation::SpaceFilling, cx);
             })
             .ok();
             wait(500).await;
 
             phase("picking");
-            for index in (0..ATOM_COUNT).step_by(ATOM_COUNT / 10) {
+            let atoms = this
+                .update(cx, |this, _| this.arena.atom_count() as u32)
+                .unwrap_or(0);
+            for atom in (0..atoms).step_by((atoms as usize / 10).max(1)).take(10) {
                 this.update(cx, |this, _| {
+                    // Frame everything first, so every chosen atom is in view.
+                    this.send(Msg::Fit);
                     this.send(Msg::ClickAtom {
-                        index,
+                        atom,
                         at: Instant::now(),
                     })
                 })
@@ -570,7 +745,7 @@ mod app {
                 latencies.sort_by(f32::total_cmp);
                 if latencies.len() < 10 {
                     this.test.failures.push(format!(
-                        "{} of 10 synthetic clicks re-aimed the camera",
+                        "{} of 10 synthetic clicks picked an atom and re-aimed the camera",
                         latencies.len()
                     ));
                 }
