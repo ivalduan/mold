@@ -81,6 +81,10 @@ fn fixture(from: &str, to: &str) -> String {
     edit_once(FIXTURE, from, to)
 }
 
+fn graph(k: &ErrorKind, is: fn(&GraphError) -> bool) -> bool {
+    matches!(k, ErrorKind::Graph(g) if is(g))
+}
+
 #[test]
 fn not_toml() {
     check(
@@ -153,11 +157,11 @@ fn a_typo_in_a_node_field_is_caught() {
     check(
         "kidn",
         case(
-            fixture("kind = \"cofold\"", "kidn = \"cofold\""),
+            fixture("kind = \"msa_query\"", "kidn = \"msa_query\""),
             "kidn",
             0,
             |k| *k == ErrorKind::UnknownKey,
-            &["`kidn`", "node `cofold`", "`kind`"],
+            &["`kidn`", "node `msa_query-1`", "`kind`", "`label`"],
         ),
     );
     check(
@@ -170,6 +174,16 @@ fn a_typo_in_a_node_field_is_caught() {
             &["`exector`", "`executor`"],
         ),
     );
+    check(
+        "policy typo",
+        case(
+            fixture("retries = 2", "retry = 2"),
+            "retry = 2",
+            0,
+            |k| *k == ErrorKind::UnknownKey,
+            &["`retry`", "`retries`"],
+        ),
+    );
 }
 
 #[test]
@@ -178,10 +192,10 @@ fn a_node_without_kind() {
         "no kind",
         case(
             fixture("kind = \"load_ligands\"\n", ""),
-            "[node.ligands]",
+            "[node.load_ligands-1]",
             6,
             |k| *k == ErrorKind::MissingKey,
-            &["node `ligands`", "`kind`"],
+            &["node `load_ligands-1`", "`kind`"],
         ),
     );
 }
@@ -191,11 +205,11 @@ fn unknown_node_kind() {
     check(
         "kind",
         with_registry(case(
-            fixture("kind = \"pose_gate\"", "kind = \"pose_gat\""),
-            "\"pose_gat\"",
+            fixture("kind = \"prepare_ligands\"", "kind = \"prepare_ligand\""),
+            "\"prepare_ligand\"",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::UnknownKind(_))),
-            &["unknown node kind `pose_gat`", "`gate`"],
+            |k| graph(k, |g| matches!(g, GraphError::UnknownKind(_))),
+            &["unknown node kind `prepare_ligand`", "`prepare_ligands-1`"],
         )),
     );
 }
@@ -205,11 +219,11 @@ fn dangling_connection_needs_no_registry() {
     check(
         "dangling",
         case(
-            fixture("msa = \"msa.msa\"", "msa = \"msaa.msa\""),
+            fixture("msa = \"msa_query-1.msa\"", "msa = \"msaa.msa\""),
             "\"msaa.msa\"",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::UnknownNode(_))),
-            &["`cofold.msa`", "no node `msaa`"],
+            |k| graph(k, |g| matches!(g, GraphError::UnknownNode(_))),
+            &["`cofold-1.msa`", "no node `msaa`"],
         ),
     );
 }
@@ -219,11 +233,11 @@ fn type_mismatched_connection() {
     check(
         "type",
         with_registry(case(
-            fixture("poses = \"cofold.poses\"", "poses = \"msa.msa\""),
-            "poses = \"msa.msa\"",
+            fixture("poses = \"cofold-1.poses\"", "poses = \"msa_query-1.msa\""),
+            "poses = \"msa_query-1.msa\"",
             8,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::TypeMismatch { .. })),
-            &["`msa.msa` (Msa)", "`gate.poses` (PoseSet)"],
+            |k| graph(k, |g| matches!(g, GraphError::TypeMismatch { .. })),
+            &["`msa_query-1.msa` (Msa)", "`pose_gate-1.poses` (PoseSet)"],
         )),
     );
 }
@@ -233,20 +247,23 @@ fn unknown_ports() {
     check(
         "input",
         with_registry(case(
-            fixture("msa = \"msa.msa\"", "mas = \"msa.msa\""),
+            fixture("msa = \"msa_query-1.msa\"", "mas = \"msa_query-1.msa\""),
             "mas = ",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::UnknownInput { .. })),
+            |k| graph(k, |g| matches!(g, GraphError::UnknownInput { .. })),
             &["no input `mas`"],
         )),
     );
     check(
         "output",
         with_registry(case(
-            fixture("msa = \"msa.msa\"", "msa = \"msa.alignment\""),
-            "\"msa.alignment\"",
+            fixture(
+                "msa = \"msa_query-1.msa\"",
+                "msa = \"msa_query-1.alignment\"",
+            ),
+            "\"msa_query-1.alignment\"",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::UnknownOutput { .. })),
+            |k| graph(k, |g| matches!(g, GraphError::UnknownOutput { .. })),
             &["no output `alignment`"],
         )),
     );
@@ -260,8 +277,8 @@ fn param_errors() {
             fixture("seed = 42", "sed = 42"),
             "sed = 42",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::UnknownParam { .. })),
-            &["`cofold` has no parameter `sed`"],
+            |k| graph(k, |g| matches!(g, GraphError::UnknownParam { .. })),
+            &["`cofold-1` has no parameter `sed`"],
         )),
     );
     check(
@@ -270,8 +287,8 @@ fn param_errors() {
             fixture("samples = 5", "samples = \"five\""),
             "\"five\"",
             0,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::ParamKind { .. })),
-            &["`cofold.samples` is Int, got Str"],
+            |k| graph(k, |g| matches!(g, GraphError::ParamKind { .. })),
+            &["`cofold-1.samples` is Int, got Str"],
         )),
     );
     check(
@@ -281,7 +298,7 @@ fn param_errors() {
             "{ value",
             0,
             |k| *k == ErrorKind::BadValue,
-            &["`prep.ph`", "not a table"],
+            &["`prepare_ligands-1.ph`", "not a table"],
         ),
     );
 }
@@ -291,37 +308,51 @@ fn malformed_connection() {
     check(
         "no dot",
         case(
-            fixture("ligands = \"prep.ligands\"", "ligands = \"prep\""),
-            "\"prep\"",
+            fixture(
+                "structure = \"load_structure-1.structure\"",
+                "structure = \"load_structure-1\"",
+            ),
+            "\"load_structure-1\"",
             0,
             |k| *k == ErrorKind::BadValue,
-            &["`cofold.ligands`", "\"node.port\""],
+            &["`msa_query-1.structure`", "\"node.port\""],
         ),
     );
 }
 
 #[test]
 fn cycle_needs_no_registry() {
-    // prep -> cofold -> gate -> prep. Reported at the first node of the cycle by id.
+    // prepare_ligands-1 -> cofold-1 -> pose_gate-1 -> prepare_ligands-1. Reported at
+    // the first node (by id) that cannot be ordered.
     check(
         "cycle",
         case(
             fixture(
-                "inputs = { ligands = \"ligands.ligands\" }",
-                "inputs = { ligands = \"gate.poses\" }",
+                "inputs = { ligands = \"load_ligands-1.ligands\" }",
+                "inputs = { ligands = \"pose_gate-1.poses\" }",
             ),
-            "[node.cofold]",
+            "[node.cofold-1]",
             6,
-            |k| matches!(k, ErrorKind::Graph(g) if matches!(**g, GraphError::Cycle { .. })),
-            &["cycle", "`cofold`"],
+            |k| graph(k, |g| matches!(g, GraphError::Cycle { .. })),
+            &["cycle", "`cofold-1`"],
         ),
     );
 }
 
 #[test]
-fn a_wrong_type_in_a_serde_mapped_field() {
-    // `executor` goes through NodeData's serde derive (as will ADR-0009's `retries`,
-    // `timeout`, `on_failure`); the error still lands on the value.
+fn wrong_types_in_serde_mapped_fields() {
+    // `label`, `executor` and the failure policy go through NodeData's serde derive;
+    // the error still lands on the value.
+    check(
+        "label",
+        case(
+            fixture("label = \"Quinazoline series\"", "label = 3"),
+            "label = 3",
+            8,
+            |k| *k == ErrorKind::BadValue,
+            &["`label` of node `load_ligands-1`", "invalid type"],
+        ),
+    );
     check(
         "executor",
         case(
@@ -329,9 +360,49 @@ fn a_wrong_type_in_a_serde_mapped_field() {
             "executor = 3",
             11,
             |k| *k == ErrorKind::BadValue,
-            &["`executor` of node `cofold`", "invalid type"],
+            &["`executor` of node `cofold-2`", "invalid type"],
         ),
     );
+    check(
+        "retries",
+        case(
+            fixture("retries = 2", "retries = -1"),
+            "retries = -1",
+            10,
+            |k| *k == ErrorKind::BadValue,
+            &["`retries` of node `msa_query-1`"],
+        ),
+    );
+    check(
+        "on_failure",
+        case(
+            fixture("on_failure = \"warn\"", "on_failure = \"warm\""),
+            "\"warm\"",
+            0,
+            |k| *k == ErrorKind::BadValue,
+            &["`on_failure` of node `cofold-2`", "warm"],
+        ),
+    );
+}
+
+#[test]
+fn invalid_timeout_needs_no_registry() {
+    for bad in ["-1.0", "0", "inf", "nan"] {
+        let to = format!("timeout = {bad}");
+        let text = fixture("timeout = 3600.0", &to);
+        let err = from_toml(&text).expect_err(bad);
+        assert_eq!((err.line, err.column), pos(&text, &to, 10), "{bad}: {err}");
+        assert!(
+            graph(&err.kind, |g| matches!(
+                g,
+                GraphError::InvalidTimeout { .. }
+            )),
+            "{bad}: {:?}",
+            err.kind
+        );
+        assert!(err.message.contains("`cofold-2`"), "{err}");
+        assert!(err.message.contains("positive number of seconds"), "{err}");
+    }
 }
 
 #[test]
@@ -339,21 +410,21 @@ fn layout_and_provenance_errors() {
     check(
         "layout node",
         case(
-            fixture("prep = { x = 280", "prepp = { x = 280"),
-            "prepp",
+            fixture("prepare_ligands-1 = { x", "prepare_ligand-1 = { x"),
+            "prepare_ligand-1",
             0,
             |k| *k == ErrorKind::UnknownKey,
-            &["layout position", "no node `prepp`"],
+            &["layout position", "no node `prepare_ligand-1`"],
         ),
     );
     check(
         "layout key",
         case(
-            fixture("y = 60.5", "z = 60.5"),
-            "z = 60.5",
+            fixture("y = 240.5", "z = 240.5"),
+            "z = 240.5",
             0,
             |k| *k == ErrorKind::UnknownKey,
-            &["`z`", "`gate`"],
+            &["`z`", "`pose_gate-2`"],
         ),
     );
     check(
@@ -369,11 +440,11 @@ fn layout_and_provenance_errors() {
     check(
         "provenance node",
         case(
-            fixture("[provenance.msa]", "[provenance.mas]"),
-            "[provenance.mas]",
+            fixture("[provenance.msa_query-1]", "[provenance.msa_query-2]"),
+            "[provenance.msa_query-2]",
             12,
             |k| *k == ErrorKind::UnknownKey,
-            &["provenance record", "no node `mas`"],
+            &["provenance record", "no node `msa_query-2`"],
         ),
     );
 }

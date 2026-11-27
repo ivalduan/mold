@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use mold_graph::{Graph, NodeData, NodeId, OutputRef, ParamValue};
+use mold_graph::{Graph, NodeData, NodeId, OnFailure, OutputRef, ParamValue};
 use mold_recipe::{Layout, Position, Provenance, Recipe, from_toml, from_toml_with, to_toml};
 use proptest::prelude::*;
 
@@ -51,11 +51,37 @@ fn position() -> impl Strategy<Value = Position> {
     (c(), c()).prop_map(|(x, y)| Position { x, y })
 }
 
-/// Per node: kind, executor, params, inputs as (upstream index, port), and optional
-/// layout and provenance. Inputs only point at earlier nodes, so the graph is a DAG.
+/// Kinds and labels from a small pool most of the time, so several nodes of one kind
+/// and repeated labels are common.
+fn kind() -> impl Strategy<Value = String> {
+    prop_oneof![3 => "(cofold|pose_gate|load)", 1 => name()]
+}
+
+fn label() -> impl Strategy<Value = Option<String>> {
+    prop::option::of(prop_oneof![3 => "(Pose gate|Boltz-2|)", 1 => name()])
+}
+
+/// Failure policy: retries, timeout (valid: finite, positive seconds), on_failure.
+fn policy() -> impl Strategy<Value = (u32, Option<f64>, OnFailure)> {
+    (
+        prop_oneof![2 => Just(0u32), 1 => any::<u32>()],
+        prop::option::of(prop_oneof![Just(3600.0), 1e-3f64..1e9]),
+        prop_oneof![
+            Just(OnFailure::Error),
+            Just(OnFailure::Warn),
+            Just(OnFailure::Ignore)
+        ],
+    )
+}
+
+/// Per node: kind, label, executor, policy, params, inputs as (upstream index, port),
+/// and optional layout and provenance. Inputs only point at earlier nodes, so the
+/// graph is a DAG.
 type NodeParts = (
     String,
     Option<String>,
+    Option<String>,
+    (u32, Option<f64>, OnFailure),
     BTreeMap<String, ParamValue>,
     BTreeMap<String, (usize, String)>,
     Option<Position>,
@@ -64,8 +90,10 @@ type NodeParts = (
 
 fn node_parts() -> impl Strategy<Value = NodeParts> {
     (
-        name(),
+        kind(),
+        label(),
         prop::option::of(name()),
+        policy(),
         prop::collection::btree_map(name(), param_value(), 0..5),
         prop::collection::btree_map(name(), (any::<usize>(), name()), 0..4),
         prop::option::of(position()),
@@ -89,12 +117,14 @@ fn recipe() -> impl Strategy<Value = Recipe> {
         .prop_map(|(ids, executor, parts)| {
             let mut r = Recipe::default();
             r.graph.executor = executor;
-            for (i, (id, (kind, exec, params, inputs, pos, prov))) in
+            for (i, (id, (kind, label, exec, policy, params, inputs, pos, prov))) in
                 ids.iter().zip(parts).enumerate()
             {
                 let id = NodeId::new(id.as_str());
                 let mut node = NodeData::new(kind);
+                node.label = label;
                 node.executor = exec;
+                (node.retries, node.timeout, node.on_failure) = policy;
                 node.params.0 = params;
                 if i > 0 {
                     for (port, (up, out)) in inputs {
@@ -137,28 +167,133 @@ proptest! {
     }
 }
 
+fn id(s: &str) -> NodeId {
+    NodeId::new(s)
+}
+
 #[test]
 fn the_fixture_loads_against_the_registry() {
     let r = load(FIXTURE);
-    assert_eq!(r.graph.nodes.len(), 6);
+    let n = |s: &str| &r.graph.nodes[&id(s)];
+    assert_eq!(r.graph.nodes.len(), 8);
     assert_eq!(r.graph.executor.as_deref(), Some("local"));
-    let cofold = &r.graph.nodes[&NodeId::new("cofold")];
-    assert_eq!(cofold.executor.as_deref(), Some("gpu-box"));
-    assert_eq!(cofold.inputs["msa"], OutputRef::new("msa", "msa"));
-    assert_eq!(cofold.params.int("samples").unwrap(), 5);
-    let gate = &r.graph.nodes[&NodeId::new("gate")];
-    assert_eq!(gate.params.float("pocket_radius").unwrap(), 8.0);
+
+    let c1 = n("cofold-1");
+    assert_eq!(c1.label.as_deref(), Some("Boltz-2 with MSA"));
+    assert_eq!(c1.executor, None);
+    assert_eq!(c1.inputs["msa"], OutputRef::new("msa_query-1", "msa"));
+    assert_eq!(c1.params.int("samples").unwrap(), 5);
+
+    let c2 = n("cofold-2");
+    assert_eq!(c2.kind, c1.kind);
+    assert_eq!(c2.executor.as_deref(), Some("gpu-box"));
     assert_eq!(
-        r.graph.nodes[&NodeId::new("receptor")].params.get("chains"),
+        (c2.retries, c2.timeout, c2.on_failure),
+        (0, Some(3600.0), OnFailure::Warn)
+    );
+    assert!(!c2.inputs.contains_key("msa"));
+    assert_eq!(c2.params.int("samples").unwrap(), 10);
+
+    assert_eq!(n("msa_query-1").retries, 2);
+    assert_eq!(n("prepare_ligands-1").label, None);
+    assert_eq!(n("pose_gate-1").label, n("pose_gate-2").label);
+    assert_eq!(
+        n("pose_gate-2").params.float("pocket_radius").unwrap(),
+        10.0
+    );
+    assert_eq!(
+        n("load_structure-1").params.get("chains"),
         Some(&ParamValue::List(vec!["A".into()]))
     );
     assert_eq!(
-        r.layout.positions[&NodeId::new("gate")],
-        Position { x: 840.0, y: 60.5 }
+        r.layout.positions[&id("pose_gate-2")],
+        Position { x: 840.0, y: 240.5 }
     );
     assert_eq!(
-        r.provenance.nodes[&NodeId::new("cofold")]["worker"],
+        r.provenance.nodes[&id("cofold-1")]["worker"],
         ParamValue::from("mock-cofold")
+    );
+}
+
+#[test]
+fn nodes_of_one_kind_and_repeated_labels_keep_their_own_configuration() {
+    // Three gates: one kind, one label, different params, policy and wiring. Ids are
+    // the identity; kind and label say nothing about which node is which.
+    let mut g = Graph::new();
+    for s in ["cofold-1", "cofold-2"] {
+        g.nodes.insert(id(s), NodeData::new("cofold"));
+    }
+    for (i, (src, clashes, on_failure)) in [
+        ("cofold-1", 0, OnFailure::Error),
+        ("cofold-2", 2, OnFailure::Warn),
+        ("cofold-2", 5, OnFailure::Ignore),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut gate = NodeData::new("pose_gate");
+        gate.label = Some("Pose gate".into());
+        gate.on_failure = on_failure;
+        gate.retries = i as u32;
+        gate.params.set("max_clashes", clashes as i64);
+        gate.inputs
+            .insert("poses".into(), OutputRef::new(src, "poses"));
+        g.nodes.insert(id(&format!("pose_gate-{}", i + 1)), gate);
+    }
+    let text = Recipe::new(g.clone()).to_toml();
+    assert_eq!(text.matches("label = \"Pose gate\"").count(), 3, "{text}");
+    let back = from_toml(&text).unwrap().graph;
+    assert_eq!(back, g);
+    let gate = |s: &str| &back.nodes[&id(s)];
+    assert_eq!(gate("pose_gate-3").inputs["poses"].node, id("cofold-2"));
+    assert_eq!(gate("pose_gate-3").params.int("max_clashes").unwrap(), 5);
+    assert_eq!(gate("pose_gate-1").on_failure, OnFailure::Error);
+}
+
+#[test]
+fn fields_are_written_in_canonical_order() {
+    // kind, label, executor, policy, inputs; then the params sub-table.
+    let text = load(FIXTURE).to_toml();
+    let block = &text[text.find("[node.cofold-2]").unwrap()..];
+    let block = &block[..block.find("[node.load_ligands-1]").unwrap()];
+    let keys: Vec<_> = block
+        .lines()
+        .filter_map(|l| l.split_once(" = ").map(|(k, _)| k))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "kind",
+            "label",
+            "executor",
+            "timeout",
+            "on_failure",
+            "inputs",
+            "model",
+            "samples",
+            "seed"
+        ],
+        "{block}"
+    );
+    assert!(block.contains("\n[node.cofold-2.params]\n"));
+}
+
+#[test]
+fn a_label_change_touches_one_line_and_nothing_else() {
+    let base = load(FIXTURE);
+    let mut relabeled = base.clone();
+    relabeled
+        .graph
+        .nodes
+        .get_mut(&id("cofold-2"))
+        .unwrap()
+        .label = Some("Boltz-1 (no MSA)".into());
+    assert_eq!(
+        changed_lines(&base.to_toml(), &relabeled.to_toml()),
+        [(
+            "label = \"Boltz-1, single sequence\"",
+            "label = \"Boltz-1 (no MSA)\""
+        )]
     );
 }
 
@@ -174,7 +309,7 @@ fn a_param_changed_in_a_text_editor_loads_back_with_only_that_param_changed() {
     expected
         .graph
         .nodes
-        .get_mut(&NodeId::new("cofold"))
+        .get_mut(&id("cofold-1"))
         .unwrap()
         .params
         .set("samples", 8i64);
@@ -190,7 +325,7 @@ fn an_int_typed_into_a_float_param_is_accepted() {
         "pocket_radius = 8.0",
         "pocket_radius = 10",
     ));
-    let gate = &r.graph.nodes[&NodeId::new("gate")];
+    let gate = &r.graph.nodes[&id("pose_gate-1")];
     assert_eq!(gate.params.get("pocket_radius"), Some(&ParamValue::Int(10)));
     assert_eq!(gate.params.float("pocket_radius").unwrap(), 10.0);
 }
@@ -211,7 +346,7 @@ fn one_change_is_a_one_line_diff() {
     let text = base.to_toml();
 
     let mut param = base.clone();
-    let cofold = param.graph.nodes.get_mut(&NodeId::new("cofold")).unwrap();
+    let cofold = param.graph.nodes.get_mut(&id("cofold-1")).unwrap();
     cofold.params.set("samples", 8i64);
     assert_eq!(
         changed_lines(&text, &param.to_toml()),
@@ -219,18 +354,14 @@ fn one_change_is_a_one_line_diff() {
     );
 
     let mut new_param = base.clone();
-    let gate = new_param.graph.nodes.get_mut(&NodeId::new("gate")).unwrap();
+    let gate = new_param.graph.nodes.get_mut(&id("pose_gate-2")).unwrap();
     gate.params.remove("min_contacts");
     let removed = new_param.to_toml();
     assert_eq!(text.lines().count() - removed.lines().count(), 1);
-    assert!(!removed.contains("min_contacts"));
+    assert_eq!(removed.matches("min_contacts").count(), 1); // pose_gate-1 keeps its own
 
     let mut executor = base.clone();
-    let cofold = executor
-        .graph
-        .nodes
-        .get_mut(&NodeId::new("cofold"))
-        .unwrap();
+    let cofold = executor.graph.nodes.get_mut(&id("cofold-2")).unwrap();
     cofold.executor = Some("ssh-cluster".into());
     assert_eq!(
         changed_lines(&text, &executor.to_toml()),
@@ -238,20 +369,34 @@ fn one_change_is_a_one_line_diff() {
     );
 
     let mut rewire = base.clone();
-    let gate = rewire.graph.nodes.get_mut(&NodeId::new("gate")).unwrap();
-    gate.inputs.remove("receptor");
-    assert_eq!(changed_lines(&text, &rewire.to_toml()).len(), 1);
+    let gate = rewire.graph.nodes.get_mut(&id("pose_gate-2")).unwrap();
+    gate.inputs
+        .insert("poses".into(), OutputRef::new("cofold-1", "poses"));
+    assert_eq!(
+        changed_lines(&text, &rewire.to_toml()),
+        [(
+            r#"inputs = { poses = "cofold-2.poses", receptor = "load_structure-1.structure" }"#,
+            r#"inputs = { poses = "cofold-1.poses", receptor = "load_structure-1.structure" }"#
+        )]
+    );
+
+    let mut policy = base.clone();
+    policy.graph.nodes.get_mut(&id("cofold-2")).unwrap().timeout = Some(7200.0);
+    assert_eq!(
+        changed_lines(&text, &policy.to_toml()),
+        [("timeout = 3600.0", "timeout = 7200.0")]
+    );
 
     let mut moved = base.clone();
     moved
         .layout
         .positions
-        .insert(NodeId::new("gate"), Position { x: 900.0, y: 60.5 });
+        .insert(id("pose_gate-2"), Position { x: 900.0, y: 240.5 });
     assert_eq!(
         changed_lines(&text, &moved.to_toml()),
         [(
-            "gate = { x = 840, y = 60.5 }",
-            "gate = { x = 900, y = 60.5 }"
+            "pose_gate-2 = { x = 840, y = 240.5 }",
+            "pose_gate-2 = { x = 900, y = 240.5 }"
         )]
     );
 }
@@ -290,7 +435,11 @@ fn layout_changes_do_not_touch_the_graph() {
     // Cache keys are a function of `Graph` alone (`mold-graph` DESIGN.md), so an
     // equal `Graph` means equal keys: moving nodes never dirties a result.
     let a = load(FIXTURE);
-    let b = load(&edit_once(FIXTURE, "x = 560, y = 60", "x = -3.25, y = 1e6"));
+    let b = load(&edit_once(
+        FIXTURE,
+        "x = 560, y = 240",
+        "x = -3.25, y = 1e6",
+    ));
     assert_ne!(a.layout, b.layout);
     assert_eq!(a.graph, b.graph);
 }
@@ -299,9 +448,9 @@ fn layout_changes_do_not_touch_the_graph() {
 fn positions_and_provenance_of_removed_nodes_are_not_written() {
     // The canvas keeps positions of removed nodes (for undo); the file does not.
     let mut r = load(FIXTURE);
-    r.graph.nodes.remove(&NodeId::new("gate"));
+    r.graph.nodes.remove(&id("pose_gate-2"));
     let text = r.to_toml();
-    assert!(!text.contains("gate"), "{text}");
+    assert!(!text.contains("pose_gate-2"), "{text}");
     let mut prov = Provenance::default();
     prov.nodes.insert(NodeId::new("ghost"), BTreeMap::new());
     assert_eq!(

@@ -70,10 +70,20 @@ mod tests {
     fn graph_types_deserialize_as_plain_structs() {
         // If this fails, a `flatten` (or similar) reached NodeData/Graph and the
         // recipe's unknown-key check would refuse every field.
-        let node = struct_fields::<NodeData>();
-        for f in ["kind", "executor", "params", "inputs"] {
-            assert!(node.contains(&f), "NodeData lost field `{f}`: {node:?}");
-        }
+        // Declaration order is the canonical write order (FORMAT.md).
+        assert_eq!(
+            struct_fields::<NodeData>(),
+            &[
+                "kind",
+                "label",
+                "executor",
+                "retries",
+                "timeout",
+                "on_failure",
+                "params",
+                "inputs"
+            ]
+        );
         assert!(struct_fields::<Graph>().contains(&"nodes"));
         assert!(struct_fields::<Graph>().contains(&"executor"));
     }

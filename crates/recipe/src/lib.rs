@@ -3,19 +3,22 @@
 //! translation. See `CLAUDE.md` and `FORMAT.md` in this crate.
 //!
 //! ```
-//! use mold_graph::{Graph, NodeData, NodeId};
+//! use mold_graph::{Graph, NodeData};
 //! use mold_recipe::{Recipe, from_toml};
 //!
+//! // The table key is the node's fixed id; `kind` is its type, `label` its name.
 //! let mut graph = Graph::new();
 //! let mut node = NodeData::new("load_structure");
+//! node.label = Some("EGFR 4WKQ".into());
 //! node.params.set("path", "fixtures/egfr/receptor.cif");
-//! graph.nodes.insert(NodeId::new("receptor"), node);
+//! graph.nodes.insert(graph.fresh_id("load_structure"), node);
 //!
 //! let text = Recipe::new(graph.clone()).to_toml();
 //! assert_eq!(
 //!     text,
-//!     "[recipe]\nformat = 1\n\n[node.receptor]\nkind = \"load_structure\"\n\n\
-//!      [node.receptor.params]\npath = \"fixtures/egfr/receptor.cif\"\n"
+//!     "[recipe]\nformat = 1\n\n\
+//!      [node.load_structure-1]\nkind = \"load_structure\"\nlabel = \"EGFR 4WKQ\"\n\n\
+//!      [node.load_structure-1.params]\npath = \"fixtures/egfr/receptor.cif\"\n"
 //! );
 //! assert_eq!(from_toml(&text).unwrap().graph, graph);
 //! ```

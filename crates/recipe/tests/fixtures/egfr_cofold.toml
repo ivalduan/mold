@@ -1,74 +1,110 @@
 # EGFR: co-fold the 4-anilinoquinazoline series against EGFR 4WKQ (fixtures/egfr) and gate the poses.
-# Hand-written, in pipeline order (the canonical form sorts nodes by id instead):
+# Hand-written, in pipeline order (the canonical form sorts nodes by id instead).
 #
-#   receptor ─► msa ──► cofold ─► gate      (receptor also feeds cofold and gate)
-#   ligands ──► prep ───┘
+# Table keys are node ids: fixed at creation (the canvas makes them as `<kind>-<n>`),
+# never renamed. `kind` is the node's type, `label` its display name. Two co-fold
+# nodes of one kind compare models; each feeds its own gate.
+#
+#   load_structure-1 ─► msa_query-1 ─► cofold-1 ─► pose_gate-1
+#   load_ligands-1 ─► prepare_ligands-1 ─┬─► cofold-1
+#                                        └─► cofold-2 ─► pose_gate-2   (no MSA)
+#   (load_structure-1 also feeds both co-folds and both gates)
 
 [recipe]
 format = 1
 executor = "local"            # a key from ~/.mold/executors.toml, never a host
 
-[node.receptor]
+[node.load_structure-1]
 kind = "load_structure"
+label = "EGFR 4WKQ"
 
-[node.receptor.params]
+[node.load_structure-1.params]
 path = "fixtures/egfr/receptor.cif"
 chains = ["A"]
 
-[node.msa]
+[node.msa_query-1]
 kind = "msa_query"            # sends the sequence off-box: the UI says so first
-inputs = { structure = "receptor.structure" }
+label = "MSA (ColabFold)"
+retries = 2                   # the public server is rate-limited
+inputs = { structure = "load_structure-1.structure" }
 
-[node.msa.params]
+[node.msa_query-1.params]
 provider = "colabfold-public"
 
-[node.ligands]
+[node.load_ligands-1]
 kind = "load_ligands"
+label = "Quinazoline series"
 
-[node.ligands.params]
+[node.load_ligands-1.params]
 path = "fixtures/egfr/ligands.smi"
 
-[node.prep]
+[node.prepare_ligands-1]
 kind = "prepare_ligands"
-inputs = { ligands = "ligands.ligands" }
+inputs = { ligands = "load_ligands-1.ligands" }
 
-[node.prep.params]
+[node.prepare_ligands-1.params]
 ph = 7.4
 
-[node.cofold]
+[node.cofold-1]
 kind = "cofold"
-executor = "gpu-box"          # override: this node runs where the GPU is
-inputs = { ligands = "prep.ligands", receptor = "receptor.structure", msa = "msa.msa" }
+label = "Boltz-2 with MSA"
+inputs = { ligands = "prepare_ligands-1.ligands", receptor = "load_structure-1.structure", msa = "msa_query-1.msa" }
 
-[node.cofold.params]
+[node.cofold-1.params]
 model = "boltz-2"
 samples = 5
 seed = 42
 
-[node.gate]
-kind = "pose_gate"
-inputs = { poses = "cofold.poses", receptor = "receptor.structure" }
+[node.cofold-2]
+kind = "cofold"
+label = "Boltz-1, single sequence"
+executor = "gpu-box"          # override: this one runs where the big GPU is
+timeout = 3600.0              # seconds per attempt
+on_failure = "warn"           # a failed ligand does not stop the comparison
+inputs = { ligands = "prepare_ligands-1.ligands", receptor = "load_structure-1.structure" }
 
-[node.gate.params]
+[node.cofold-2.params]
+model = "boltz-1"
+samples = 10
+seed = 7
+
+[node.pose_gate-1]
+kind = "pose_gate"
+label = "Pose gate"
+inputs = { poses = "cofold-1.poses", receptor = "load_structure-1.structure" }
+
+[node.pose_gate-1.params]
+max_clashes = 0
+min_contacts = 6
+pocket_radius = 8.0
+
+[node.pose_gate-2]
+kind = "pose_gate"
+label = "Pose gate"           # labels may repeat; ids may not
+inputs = { poses = "cofold-2.poses", receptor = "load_structure-1.structure" }
+
+[node.pose_gate-2.params]
 max_clashes = 2
 min_contacts = 4
-pocket_radius = 8.0
+pocket_radius = 10.0
 
 # Canvas positions: optional, ignored by headless replay.
 [layout.positions]
-receptor = { x = 0, y = 0 }
-msa = { x = 280, y = -120 }
-ligands = { x = 0, y = 220 }
-prep = { x = 280, y = 220 }
-cofold = { x = 560, y = 60 }
-gate = { x = 840, y = 60.5 }
+load_structure-1 = { x = 0, y = 0 }
+msa_query-1 = { x = 280, y = -120 }
+load_ligands-1 = { x = 0, y = 220 }
+prepare_ligands-1 = { x = 280, y = 220 }
+cofold-1 = { x = 560, y = 0 }
+cofold-2 = { x = 560, y = 240 }
+pose_gate-1 = { x = 840, y = 0 }
+pose_gate-2 = { x = 840, y = 240.5 }
 
 # What answered last time. Written by the run, not by hand; shown here as data.
-[provenance.msa]
+[provenance.msa_query-1]
 provider = "colabfold-public"
 endpoint = "https://api.colabfold.com"
 
-[provenance.cofold]
+[provenance.cofold-1]
 worker = "mock-cofold"
 worker_version = "0.1.0"
 model_version = "boltz-2.0.3"
