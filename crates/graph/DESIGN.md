@@ -69,7 +69,52 @@ Keys are Merkle-style: a dependency contributes its key, not a hash of its paylo
 
 Dirtying is implicit: a param change changes the key of every item of that node and, through the Merkle chain, of every descendant item; nothing upstream changes. Each cook regenerates the item graph (cheap) and looks every work item up in the cache at generation. `Engine::generate` therefore reports exactly which items are dirty (`Uncooked`) versus `Cached`, without cooking. Generation that depends on a param re-runs because generation always re-runs.
 
-`Cache` is a trait (`get`/`put` of `Arc<Outputs>` by key). `MemoryCache` ships. A run-directory store needs a payload codec per `PortType` (payloads are type-erased); that is a follow-up.
+`Cache` is a trait (`get`/`put` of `Arc<Outputs>` by key, plus `persistence(key)`). `MemoryCache` (this process) and `RunDirCache` (memory, then the run directory) ship. The executor is never part of a key, so switching in-process ↔ subprocess ↔ farm keeps the cache.
+
+## Run-directory cache and payload codecs
+
+### Codecs (`codec.rs`)
+
+```rust
+pub trait Codec: Send + Sync + 'static {
+    type Payload: Any + Send + Sync;
+    fn id(&self) -> &str;      // stable forever, globally unique: "mold-mol/arena"
+    fn version(&self) -> u32;  // bump on any byte-layout change
+    fn encode(&self, p: &Self::Payload, out: &mut Vec<u8>) -> Result<(), CodecError>;
+    fn decode(&self, bytes: &[u8]) -> Result<Self::Payload, CodecError>; // never panics
+}
+CodecRegistry::register(PortType, codec) -> Result<&mut Self, CodecConflict>
+CodecRegistry::encode(&Value) -> Result<Encoded { codec, version, bytes }, CodecError>
+CodecRegistry::decode(PortType, codec_id, version, &[u8]) -> Result<Value, CodecError>
+```
+
+- **Typed trait, erased registry.** Codec authors write against their own Rust type, never `Value` or `Any`; the registry wraps them. The registry is filled by the host: the crate that owns a payload type ships its codec, `nodes` (or the app/CLI) registers it under every port type that carries it. `graph` registers nothing by default.
+- **Keyed by `(PortType, codec id)`, not by `PortType` alone.** The Rust type behind a port type is a convention (`nodes` owns it), not something `PortType` enforces: a `Scalar` can be `f64` or `i64`, a `Table` a polars frame or (in tests) a `Vec<i64>`, and plugins may bring their own type to an existing port type. So encoding picks, among the codecs registered for the value's port type, the one whose payload type the value downcasts to; the entry records the codec id and version per port; decoding looks up `(port type, id)` and checks the version. One codec may serve several port types; an id is bound to one payload type everywhere; a port type has at most one codec per payload type. No change to `PortType` or `Value` was needed.
+- **Shipped codecs** (types `graph` can name; none registered by default): `I64Codec`, `F64Codec` (bit-exact), `StringCodec`, `I64VecCodec`, `F64VecCodec`, and `ArenaCodec` for `mold_mol::Arena` in `mol`'s binary cache format (`mold_mol::cache`), whose codec version *is* `mol`'s `FORMAT_VERSION`, so a format bump there invalidates entries here.
+
+### On-disk layout (`run_dir.rs`)
+
+```text
+<run-dir>/cache/<aa>/<hash>   one entry per work item; <hash> = 64 hex of the item key,
+                              <aa> = its first two hex chars (256 shards)
+<run-dir>/cache/tmp/          in-flight writes: <hash>.<pid>.<n>.tmp
+```
+
+Entry (format v1, little-endian): 16-byte magic `\x89MOLDITEM\r\n\x1a\n\0\0\0`, `u32` format version, the 32-byte key (must match the file name), `u64` payload length, 32-byte BLAKE3 of the payload, payload. Payload = the item's cook-added attributes, its artifact paths, and per output port: port name, port type name, codec id, codec version, codec bytes. Partition and no-work items are never stored (they are rebuilt at generation).
+
+**Writes are atomic**: write the temp file, then `rename` over the final path (same volume). A reader sees a whole entry or none; a crashed write leaves a stray `.tmp` that is never read (and never deleted: another process may own it). No `fsync`: a torn entry after a power loss fails its checksum and is a miss. Within one process the cache is `Sync` (memory layer behind a mutex; disk I/O outside it; concurrent writers of one key write identical bytes and the last rename wins). On Windows, std opens files with `FILE_SHARE_DELETE`, so a rename over an entry that is being read succeeds.
+
+`RunDirCache::get` = memory, then disk (a disk hit is decoded once and kept in memory, so later readers share the `Arc`). `put` = memory, then disk, synchronously on the scheduler thread (a write-behind thread is a follow-up if large payloads show up in profiles).
+
+### Failure policy
+
+- **Reading never panics and never trusts a length.** A missing entry is a plain miss. An unreadable one — I/O error, bad magic, other format version, truncated, checksum, wrong key, unknown port type, unknown codec, other codec version, codec refusal, a listed artifact file that no longer exists — is a miss **and** a `CacheEvent::Unreadable { key, path, error }`. The item re-cooks; its new entry replaces the bad one. No migration, ever: a cache is derived data.
+- **Not persisted is observable, never silent.** If any output's payload has no codec (or the codec refuses it, an artifact path is not UTF-8, or the write fails), the whole result stays in memory only — a partial entry would be useless, since a cached item must provide every port. `Cache::persistence(key)` returns `Persistence::NotPersisted(Unpersisted::NoCodec { port, ty } | Encode | NonUtf8File | Io)`, and a `CacheEvent::NotPersisted` is queued (`RunDirCache::take_events`). The next process re-cooks that item and, through the Merkle keys, nothing else is affected: its descendants' keys don't depend on whether it was persisted.
+- **Artifacts** (`Outputs::files`) are recorded by path, not copied. An entry whose artifact is gone is a miss.
+
+### What is not persisted, and why
+Partitions and no-work items (rebuilt from generation, cost nothing); results with an uncodable port (see above); `Outputs::partial` (transient progress). Not built (noted for later): eviction / size limits; locking or sharing between processes on one run directory (safe but uncoordinated today: two processes may both cook an item); a cache shared across run directories or remote; garbage collection of stray temp files.
+
 
 ## Port values
 
@@ -97,4 +142,4 @@ impl JobHandle { fn started(&self); fn partial(&self, Outputs); fn finish(self, 
 
 ## Deferred (follow-ups)
 
-Run-directory (persistent) cache and payload codecs; subprocess/external executors; services/persistent worker pools; batch items; mappers; `@attr` parameter expressions; partitions that close before all upstream items finish; cache eviction; incremental re-cook of a live item graph (today each cook regenerates, O(items) per event).
+Subprocess/external executors; services/persistent worker pools; batch items; mappers; `@attr` parameter expressions; partitions that close before all upstream items finish; cache eviction, cross-process locking and remote caches; incremental re-cook of a live item graph (today each cook regenerates, O(items) per event).

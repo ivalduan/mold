@@ -10,6 +10,7 @@
 //! See `CLAUDE.md` in this crate for scope and acceptance tests.
 
 mod cache;
+mod codec;
 mod engine;
 mod exec;
 mod hash;
@@ -19,9 +20,14 @@ mod model;
 mod node;
 mod param;
 mod partition;
+mod run_dir;
 mod value;
 
-pub use cache::{Cache, MemoryCache};
+pub use cache::{Cache, MemoryCache, Persistence, Unpersisted};
+pub use codec::{
+    ArenaCodec, Codec, CodecConflict, CodecError, CodecRegistry, Encoded, F64Codec, F64VecCodec,
+    I64Codec, I64VecCodec, StringCodec,
+};
 pub use engine::{CookOptions, Engine, EngineError, Observer};
 pub use exec::{Executor, Job, JobEvent, JobHandle, JobId, ThreadExecutor};
 pub use hash::ContentHash;
@@ -35,6 +41,7 @@ pub use node::{
 };
 pub use param::{AttrValue, Attributes, ParamKind, ParamSpec, ParamValue, Params};
 pub use partition::{PartitionByAttribute, WaitForAll};
+pub use run_dir::{CacheEvent, ENTRY_FORMAT_VERSION, ENTRY_MAGIC, EntryError, RunDirCache};
 pub use value::Value;
 
 use serde::{Deserialize, Serialize};

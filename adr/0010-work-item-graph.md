@@ -27,4 +27,4 @@ The v0.1 plan assumed whole-node evaluation: a node is dirty or clean, cached as
 - Typed ports describe what each item on an edge carries.
 - The `nodes` workstream authors item-generating nodes; `docs/authoring-a-node.md` must cover generation.
 - The `jobs` workstream (ADR-0009) builds subprocess and external executors on the item seam.
-- Deferred: services/persistent worker pools, batch items, mappers, `@attr` parameter expressions, persistent on-disk cache.
+- Deferred: services/persistent worker pools, batch items, mappers, `@attr` parameter expressions. (The persistent on-disk cache was deferred here and landed in WS-04's second PR: `RunDirCache` + payload codecs keyed by (PortType, codec id); see `crates/graph/DESIGN.md`.)
