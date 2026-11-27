@@ -1,4 +1,4 @@
-# EGFR: co-fold the 4-anilinoquinazoline series against 1M17 and gate the poses.
+# EGFR: co-fold the 4-anilinoquinazoline series against EGFR 4WKQ (fixtures/egfr) and gate the poses.
 # Hand-written, in pipeline order (the canonical form sorts nodes by id instead):
 #
 #   receptor ─► msa ──► cofold ─► gate      (receptor also feeds cofold and gate)
