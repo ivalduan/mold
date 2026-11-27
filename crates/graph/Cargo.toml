@@ -13,5 +13,8 @@ mold-mol.workspace = true
 blake3.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

@@ -10,6 +10,7 @@
 //! See `CLAUDE.md` in this crate for scope and acceptance tests.
 
 mod cache;
+mod codec;
 mod engine;
 mod exec;
 mod hash;
@@ -22,6 +23,10 @@ mod partition;
 mod value;
 
 pub use cache::{Cache, MemoryCache};
+pub use codec::{
+    ArenaCodec, Codec, CodecConflict, CodecError, CodecRegistry, Encoded, F64Codec, F64VecCodec,
+    I64Codec, I64VecCodec, StringCodec,
+};
 pub use engine::{CookOptions, Engine, EngineError, Observer};
 pub use exec::{Executor, Job, JobEvent, JobHandle, JobId, ThreadExecutor};
 pub use hash::ContentHash;
