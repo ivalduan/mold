@@ -10,7 +10,17 @@ publish.workspace = true
 
 [dependencies]
 mold-mol.workspace = true
-# Planned: wgpu, bytemuck, glam. NEVER gpui: this crate must render headless.
+# NEVER gpui: this crate must render headless (scripts/check-layering.sh).
+wgpu.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "frame"
+harness = false
 
 [lints]
 workspace = true

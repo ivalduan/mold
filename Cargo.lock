@@ -4424,7 +4424,11 @@ dependencies = [
 name = "mold-render"
 version = "0.0.0"
 dependencies = [
+ "bytemuck",
+ "criterion",
+ "glam",
  "mold-mol",
+ "wgpu",
 ]
 
 [[package]]
