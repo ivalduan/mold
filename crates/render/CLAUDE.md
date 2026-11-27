@@ -18,7 +18,7 @@ Pure-`wgpu` molecular renderer. Everything above the `ViewportBackend` seam: cam
 
 ## Acceptance tests
 - [x] Headless render test: draw a known fixture structure offscreen and compare a perceptual hash (`tests/golden.rs`: EGFR + gefitinib in spheres, ball & stick and sticks, 256-bit dHash + covered fraction vs committed goldens; a BMP for humans goes to `target/render-tests/`, never committed). Skips cleanly with no adapter (prints `SKIPPED <test>: no wgpu adapter: …` and passes); `MOLD_RENDER_REQUIRE_GPU=1` turns the skip into a failure for a future GPU CI job.
-- [ ] Criterion: 500 poses of ~3,000 atoms in under 16.6 ms per frame with spheres, sticks and cartoon. *(`benches/frame.rs`, spheres + sticks only — cartoon is not built yet. Met side by side, not superimposed; see "Frame budget" below.)*
+- [ ] Criterion: 500 poses of ~3,000 atoms in under 16.6 ms per frame with spheres, sticks and cartoon. *(`benches/frame.rs`, spheres + sticks only — cartoon is not built yet. Met side by side, not yet superimposed; see "Frame budget" below.)* **Budget definition (product owner, 2026-11-27): 500 poses superimposed over a shared receptor** — the receptor drawn once (or a few representative receptors), every pose's ligand on top; full complexes are shown on demand and are not held to 16.6 ms. Next render PR: shared-receptor drawing + a bench for exactly this case.
 - [x] Pick round-trip returns the right `PoseId` + atom (`tests/pick.rs`: GPU id readback vs an exact CPU ray cast over a pixel grid — spheres 0 mismatches in 1,196 pixels, sticks 15 edge pixels in 3,207 hits; a known atom of the second of two poses → `PoseId(1)` + that atom; a hidden pose is not picked; outside the target is a miss).
 
 ## Design notes (WS-08, first PR)

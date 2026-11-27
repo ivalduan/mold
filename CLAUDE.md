@@ -48,4 +48,4 @@ cargo test -p mold-chem --features rdkit     # only where RDKit is installed (AD
 On this Windows machine cargo is at `%USERPROFILE%\.cargo\bin` and may not be on the Git Bash PATH: `export PATH="$HOME/.cargo/bin:$PATH"`.
 
 ## Performance budget (tests should be able to fail on these)
-16.6 ms frame at 500 poses × ~3,000 atoms · <100 ms click → re-aimed camera · <200 ms to gate 500 poses · <2 s to load and show 300 ligands from cache.
+16.6 ms frame at 500 poses × ~3,000 atoms, superimposed over a shared receptor (decided 2026-11-27; full complexes on demand) · <100 ms click → re-aimed camera · <200 ms to gate 500 poses · <2 s to load and show 300 ligands from cache.
