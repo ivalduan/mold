@@ -2,8 +2,8 @@
 
 The node canvas. Runs W2–W4, in parallel with the renderer.
 
-## Base (ADR-0004, default if nobody decides: fork gpui-flow)
-**Evaluated 2026-11-25; ADR-0004 is Proposed** with a narrow fork: gpui-flow's bezier edge geometry is vendored (`src/vendor/gpui_flow/`), the rest is our own, shaped after gpui-flow's `graph.rs`. Both candidates own their graph, hard-code the payload and sit on upstream Zed GPUI. Original brief:
+## Base (ADR-0004: accepted 2026-11-27, our own canvas)
+**The canvas is ours.** Both candidates own their graph, hard-code the payload and sit on upstream Zed GPUI; what gpui-flow contributes is one MIT bezier function (`src/vendor/gpui_flow/`), kept as an attributed snippet, not a base we track. Adopt a crate only if it gives us something significant and passes the rubric below. Original brief:
 Evaluate `gpui-flow` first (React-Flow-style: nodes, edges, handles, pan/zoom, custom renderers, GPUI components inside nodes). Second look: `ferrum-flow`, mainly for its undo/redo command model. **Expect to fork, not depend**: young crates; we need typed ports; a fork costs a week, a wrong dependency is a permanent tax.
 
 ## Adoption rubric: reject a base that fails any of these

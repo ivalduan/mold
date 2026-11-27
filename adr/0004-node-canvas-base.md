@@ -1,7 +1,7 @@
 # 0004. Node canvas base
 
-- Status: Proposed
-- Date: 2026-11-25
+- Status: Accepted (2026-11-27): **our own canvas**, see [Decision](#decision)
+- Date: 2026-11-25 (proposed), 2026-11-27 (accepted)
 - Deciders: product owner (accepts); WS-09 ui-graph (proposes)
 - Workstream: WS-09 ui-graph
 
@@ -43,7 +43,15 @@ Both read at their default branch head, cloned outside the repo:
 
 **What a fork of gpui-flow would keep.** Removing `FlowState`'s ownership of nodes/edges, its snapshot undo, its untyped handles and its drop-only validation leaves: the viewport transform (a dozen lines), the render structure (nodes as absolutely positioned divs, edges painted with `PathBuilder` in a `canvas` layer), and the edge geometry in `src/edges/`: `bezier.rs` is a port of xyflow's `getBezierPath`, pure `f32` maths with no GPUI types. A wholesale fork of `graph.rs`/`store.rs` would be rewritten line by line, which makes "unmodified upstream, then our diff" meaningless to review.
 
-## Decision (proposed)
+## Decision
+**Accepted 2026-11-27 by the product owner: write our own canvas.** What gpui-flow contributes (one ~80-line bezier function) is too small to call a fork. The rule going forward: adopt a Rust crate only when it gives us something significant that passes the rubric; otherwise we build it ourselves. Re-evaluate only if such a crate appears.
+
+Concretely:
+1. The canvas is ours: the GPUI-free core (`mold_ui_graph::canvas`) and the GPUI view (`mold_ui_graph::view`), as described in point 2 of the proposal below.
+2. The xyflow bezier function stays as an attributed MIT snippet in `crates/ui-graph/src/vendor/gpui_flow/`. It is a borrowed utility, not a base we track: upstream gpui-flow is not followed, and we may rewrite or replace the function freely.
+3. Undo/redo stays `mold_graph::Editor`'s (point 3 below). ferrum-flow: not adopted.
+
+### Proposal as evaluated (2026-11-25, kept for the record)
 Neither candidate passes the rubric as a dependency: both own the graph and hard-code the payload, and both are built on upstream Zed GPUI, which cannot be mixed with the GPUI Fast lineage. Of the two, gpui-flow fails only on things a fork removes, so the default holds in a **narrow** form:
 
 1. **Fork gpui-flow by vendoring what survives the rubric**: `src/edges/bezier.rs` (xyflow bezier edge path, MIT) into `crates/ui-graph/src/vendor/gpui_flow/`, licence and upstream revision preserved, committed unmodified and then adapted in a separate commit. Row in `THIRD_PARTY.md` as vendored source.
@@ -59,4 +67,5 @@ The base-specific code is confined to `crates/ui-graph/src/vendor/gpui_flow/` (g
 - The canvas never stores the graph; the tests for refusal, connect + undo and new node kinds run headless on every OS.
 - We maintain the canvas code ourselves instead of tracking an inactive upstream. Upstream gpui-flow changes are not followed; the vendored file is small enough to diff by hand.
 - Features gpui-flow has and we have not ported (minimap, box selection, smooth-step/straight edges, snap-to-grid, edge labels) stay out of v0.1 scope; any of them can be ported from the same upstream revision under the same vendoring rule.
-- If the product owner prefers a full fork of gpui-flow (vendoring `graph.rs`/`store.rs`/`types.rs` and porting them to GPUI Kit), only `src/view/` changes; the core API stays.
+- Minimap, box selection, other edge shapes, snap-to-grid and edge labels are features we write when we need them, not ports from gpui-flow.
+- If a canvas crate worth adopting appears later, only `src/view/` should change; the core API stays.
