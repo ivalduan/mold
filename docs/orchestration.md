@@ -10,7 +10,7 @@ How we run two or more workstreams at once: an orchestrator session briefs indep
 | Workstream agent (one per worktree) | Implements its brief in its own worktree, commits locally with sign-off, reports back | Push, open PRs, touch other crates, the main checkout, or contract types |
 
 ## 1. Pick the items
-- Use [workstreams.md](workstreams.md): items whose "Can start" condition holds and whose open decisions don't block them. `jobs` is on hold until [ADR-0009](../adr/0009-execution-flavours.md) is accepted.
+- Use [workstreams.md](workstreams.md): items whose "Can start" condition holds and whose open decisions don't block them. `jobs` builds on [ADR-0009](../adr/0009-execution-flavours.md) (accepted) once the node-trait change is on `main`.
 - Prefer pairs that share no files. The root `Cargo.toml` / `THIRD_PARTY.md` / `Cargo.lock` are the only expected overlap.
 - Ask the product owner whenever the choice or scope isn't obvious: which items, the PR scope, and whether a design question blocks.
 
