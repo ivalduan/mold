@@ -7,7 +7,7 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -190,6 +190,25 @@ impl NewItem {
 /// `generate` and `cook` must be pure functions of (params, parent/inputs,
 /// [`fingerprint`](Self::fingerprint)): results are cached per item under a hash of
 /// exactly those.
+///
+/// # Rust-native and worker nodes (ADR-0009 §1)
+/// A **Rust-native** node implements [`cook`](Self::cook); nothing else is needed.
+/// A **worker node** (co-folding, docking: anything Python, GPU or GPL) instead cooks
+/// an item in three phases, of which graph owns two:
+///
+/// 1. [`prepare`](Self::prepare) (in the app): write the item's inputs into its run
+///    directory and return a [`CommandJob`] (worker name + `JobSpec` as JSON);
+/// 2. *run* (wherever the executor says; `mold-jobs`): launch the worker and relay its
+///    events;
+/// 3. collect (in the app): [`collect_event`](Self::collect_event) folds each event into
+///    partial outputs as it arrives, [`collect_finish`](Self::collect_finish) turns the
+///    final event and the run directory into the item's outputs.
+///
+/// graph never interprets the JSON: the worker protocol belongs to `mold-jobs`.
+/// A worker node need not implement `cook`; the default fails with
+/// [`NodeError::NoCommandExecutor`], which is what the in-process executor reports for
+/// it. A node implementing both is cooked in Rust in-process and as a command by a
+/// command executor, and must give identical outputs either way (a parity reference).
 pub trait Processor: Send + Sync + 'static {
     /// Ports and parameters. Called once at registration.
     fn spec(&self) -> NodeSpec;
@@ -204,14 +223,108 @@ pub trait Processor: Send + Sync + 'static {
         Ok(vec![NewItem::work()])
     }
 
-    /// Cook one item: compute every declared output.
-    fn cook(&self, ctx: &CookContext<'_>) -> Result<Outputs, NodeError>;
+    /// Cook one item in Rust: compute every declared output.
+    ///
+    /// Default: [`NodeError::NoCommandExecutor`], for worker nodes, which have no Rust
+    /// cook and run only through [`prepare`](Self::prepare) and collect.
+    fn cook(&self, _ctx: &CookContext<'_>) -> Result<Outputs, NodeError> {
+        Err(NodeError::NoCommandExecutor)
+    }
 
     /// Extra bytes mixed into every item key of this node: state outside params and
     /// inputs that results depend on (a source file's content hash, an implementation
     /// version). Called once per cook, on the scheduler thread; keep it cheap.
     fn fingerprint(&self, _params: &Params) -> Vec<u8> {
         Vec::new()
+    }
+
+    /// **Command path, phase 1** (controller side). Write the item's inputs into
+    /// `ctx.run_dir` (already created; a fresh one per attempt) and return the job to
+    /// run there. `None` (the default) = this item is Rust-native: it is cooked by
+    /// [`cook`](Self::cook).
+    fn prepare(&self, _ctx: &CommandContext<'_>) -> Result<Option<CommandJob>, NodeError> {
+        Ok(None)
+    }
+
+    /// **Command path, phase 3** (controller side), once per worker event, in order, as
+    /// it arrives. Fold `event` into `partial` (the outputs so far, empty at first) and
+    /// return whether it changed: a changed `partial` is reported to observers at once
+    /// (pose streaming). Ignore events you don't use. Default: ignores every event.
+    fn collect_event(
+        &self,
+        _ctx: &CommandContext<'_>,
+        _event: &serde_json::Value,
+        _partial: &mut Outputs,
+    ) -> Result<bool, NodeError> {
+        Ok(false)
+    }
+
+    /// **Command path, phase 3, end** (controller side): the run succeeded with
+    /// `finished` (the final event; artifacts it names are in `ctx.run_dir`). Return the
+    /// item's final outputs; `partial` is what [`collect_event`](Self::collect_event)
+    /// folded. Default: fails, because a node that prepares a command must collect it.
+    fn collect_finish(
+        &self,
+        _ctx: &CommandContext<'_>,
+        _finished: &serde_json::Value,
+        _partial: Outputs,
+    ) -> Result<Outputs, NodeError> {
+        Err(NodeError::msg(
+            "the node prepared a command job but does not implement `collect_finish`",
+        ))
+    }
+}
+
+/// What [`Processor::prepare`] and the collect methods see. Built by
+/// [`Job::prepare`](crate::Job::prepare) and [`Job::run_command`](crate::Job::run_command).
+#[derive(Debug)]
+pub struct CommandContext<'a> {
+    pub item: &'a ItemId,
+    /// Declared params, defaults filled in.
+    pub params: &'a Params,
+    /// Attributes including inherited ones.
+    pub attrs: &'a Attributes,
+    pub inputs: &'a Inputs,
+    /// This attempt's run directory, on the controller's filesystem. Paths in the
+    /// `JobSpec` and in events are relative to it (ADR-0005).
+    pub run_dir: &'a Path,
+    pub cancel: &'a CancelToken,
+}
+
+/// One item prepared as a command: what an executor needs to *run* it. graph does not
+/// look inside `spec` or the events; `mold-jobs` parses and validates them against
+/// its protocol.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandJob {
+    /// The worker to launch (the name in its manifest).
+    pub worker: String,
+    /// The run directory `prepare` wrote into.
+    pub run_dir: PathBuf,
+    /// The `JobSpec`, as JSON.
+    pub spec: serde_json::Value,
+    /// Inputs to stage to a target without a shared filesystem, relative to `run_dir`.
+    /// Empty = stage the whole run directory.
+    pub stage: Vec<PathBuf>,
+}
+
+impl CommandJob {
+    pub fn new(
+        worker: impl Into<String>,
+        run_dir: impl Into<PathBuf>,
+        spec: serde_json::Value,
+    ) -> Self {
+        Self {
+            worker: worker.into(),
+            run_dir: run_dir.into(),
+            spec,
+            stage: Vec::new(),
+        }
+    }
+
+    /// Declare one input to stage (relative to the run directory).
+    pub fn stage(mut self, path: impl Into<PathBuf>) -> Self {
+        self.stage.push(path.into());
+        self
     }
 }
 
@@ -394,6 +507,9 @@ pub enum NodeError {
     InvalidOutput(String),
     /// The executor dropped the job without completing it (crashed worker, lost host).
     Lost,
+    /// The item has no Rust cook (a worker node) and its executor cannot run command
+    /// jobs (e.g. the in-process [`ThreadExecutor`](crate::ThreadExecutor)).
+    NoCommandExecutor,
 }
 
 impl NodeError {
@@ -410,6 +526,11 @@ impl fmt::Display for NodeError {
             Self::Panicked(m) => write!(f, "panicked: {m}"),
             Self::InvalidOutput(m) => write!(f, "invalid output: {m}"),
             Self::Lost => write!(f, "job lost by its executor"),
+            Self::NoCommandExecutor => write!(
+                f,
+                "no executor for command jobs: this node runs as a command job \
+                 (prepare/collect) and has no Rust cook; give it a command executor (mold-jobs)"
+            ),
         }
     }
 }

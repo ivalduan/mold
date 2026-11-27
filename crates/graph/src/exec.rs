@@ -6,11 +6,11 @@
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
+use crate::command::guarded;
 use crate::hash::ContentHash;
 use crate::item::ItemId;
 use crate::node::{CancelToken, CookContext, Inputs, NodeError, Outputs, Processor};
@@ -61,17 +61,7 @@ impl Job {
             cancel: &self.cancel,
             partial: Some(&partial),
         };
-        match catch_unwind(AssertUnwindSafe(|| self.processor.cook(&ctx))) {
-            Ok(r) => r,
-            Err(p) => {
-                let msg = p
-                    .downcast_ref::<&str>()
-                    .map(|s| s.to_string())
-                    .or_else(|| p.downcast_ref::<String>().cloned())
-                    .unwrap_or_default();
-                Err(NodeError::Panicked(msg))
-            }
-        }
+        guarded(|| self.processor.cook(&ctx))
     }
 }
 

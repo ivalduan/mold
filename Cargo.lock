@@ -4376,6 +4376,7 @@ dependencies = [
  "mold-mol",
  "proptest",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
