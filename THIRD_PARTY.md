@@ -5,7 +5,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | Component | Used by | Licence | Mode | Status |
 |---|---|---|---|---|
 | serde, serde_json | graph, jobs | MIT OR Apache-2.0 | linked | in use |
-| blake3 | graph (content-hash cache keys) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
+| blake3 | graph (content-hash cache keys), mol (arena cache checksum) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
 | GPUI Kit 0.11.0 (`gpui-kit`, feature `gpui-fast`) → GPUI Fast 0.1.19 (`gpui-fast*`), GPUI snapshot `gpui-pre*` =0.3.14, `gpui-base`, `gpui-component` | ui-* , app | Apache-2.0 (verified: crates.io metadata + upstream LICENSE-APACHE in longbridge/gpui-kit and longbridge/gpui-fast) | linked | in use (ui-viewport, Windows only); pinned by ADR-0002 |
 | wgpu 30.0.1 | render, ui-viewport | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (ui-viewport); exact pin matches gpui-fast-wgpu |
 | bytemuck, glam 0.34 | render, ui-viewport | bytemuck: Zlib OR Apache-2.0 OR MIT; glam: MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (ui-viewport) |
