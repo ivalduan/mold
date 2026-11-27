@@ -36,7 +36,7 @@ Option 1, pinned exactly:
 | `wgpu` | `=30.0.1` | root `[workspace.dependencies]`; what gpui-fast-wgpu pins, so Linux gets one wgpu |
 | `windows` | `0.62` (lock: 0.62.2, `windows-core` 0.62.2) | root `[workspace.dependencies]`, Windows only |
 
-**The `platform_handle()` downcast was tested against gpui-fast 0.1.19 (`fd15f82`) on Windows 11** with `cargo run -p mold-ui-viewport --example spike --release -- --self-test` (results in ADR-0003). The demo was tested against `86a8228`; we depend on neither that revision nor the demo. `mold_ui_viewport::backend::GPUI_FAST_TESTED` records the tested version; a unit test fails if it drifts from the `=` pin, and a wrong handle type fails at startup with a message naming the tested version and this ADR.
+**The `platform_handle()` downcast was tested against gpui-fast 0.1.19 (`fd15f82`) on Windows 11** with `cargo run -p mold-ui-viewport --example spike --release -- --self-test` (results in ADR-0003). Since WS-08 replaced the spike, re-run it as `cargo run -p mold-ui-viewport --example viewport --release -- --self-test`. The demo was tested against `86a8228`; we depend on neither that revision nor the demo. `mold_ui_viewport::backend::GPUI_FAST_TESTED` records the tested version; a unit test fails if it drifts from the `=` pin, and a wrong handle type fails at startup with a message naming the tested version and this ADR.
 
 Members choose Kit layers themselves: the workspace entry has no default features (no `component`, `assets` or `x11`); `ui-viewport`'s example adds `component`. `app` decides `assets` and `x11` when it lands (feature unification then applies to every UI crate in that build).
 
