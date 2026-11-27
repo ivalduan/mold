@@ -3,7 +3,7 @@
 - Upstream: https://github.com/pacifio/gpui-flow
 - Revision: `cfa578758ee251657f15f281d893a08b85aedbff` (2026-03-23, "init v0.1.0")
 - Licence: MIT, see `LICENSE` in this directory (kept as required by its terms).
-- Why: ADR-0004 (narrow fork). Only the edge geometry is vendored.
+- Why: ADR-0004 (accepted: our own canvas). This one function is the only borrowed code; upstream is not tracked, and we may rewrite or replace it freely.
 
 | File here | Upstream path |
 |---|---|
