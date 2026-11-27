@@ -4421,7 +4421,9 @@ name = "mold-recipe"
 version = "0.0.0"
 dependencies = [
  "mold-graph",
+ "proptest",
  "serde",
+ "toml 1.2.2+spec-1.1.0",
 ]
 
 [[package]]
