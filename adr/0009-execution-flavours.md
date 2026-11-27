@@ -53,6 +53,7 @@ Only **run** differs between flavours, so the same graph, recipe and `JobSpec` p
 - `Processor` gets defaulted methods to **prepare** a command job for an item (`None` = Rust-native) and to **collect** (fold one worker event into partial outputs; finish into final outputs).
 - `mold-graph` must not depend on `mold-jobs` (it's the other way round), so at the graph boundary a command job is a worker name + run dir + the `JobSpec` as `serde_json::Value`, and events arrive as `serde_json::Value`. `mold-jobs` owns parsing and validation against `protocol.rs`; graph never interprets the protocol.
 - Prepare and collect run on the controller side, where the executor object lives; the executor already holds the `Job` (and so the processor).
+- **Finalised** (WS-04, 2026-11-27): `Processor::{prepare, collect_event, collect_finish, needs}` (defaulted; `cook` is now defaulted too, to `NodeError::NoCommandExecutor`), `CommandJob { worker, run_dir, spec, stage }`, `CommandContext`, and on `Job`: `prepare`/`run_command`/`cook_command` with an `EventSink`, plus `needs`, `policy` (`FailurePolicy`) and `attempt`; `NodeData.{retries, timeout, on_failure}` (§7, enforced by the engine). See crates/graph/DESIGN.md "Command path".
 
 ### 2. v0.1 ships three executors: in-process, local, SSH (PO)
 | Executor | Runs | Notes |
