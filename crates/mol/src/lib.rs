@@ -9,6 +9,7 @@
 //! No GPUI, no async. See `CLAUDE.md` in this crate for scope and acceptance tests.
 
 pub mod arena;
+pub mod cache;
 mod element;
 pub mod io;
 pub mod pose_table;
