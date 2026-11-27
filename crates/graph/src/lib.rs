@@ -11,6 +11,7 @@
 
 mod cache;
 mod codec;
+mod command;
 mod engine;
 mod exec;
 mod hash;
@@ -20,6 +21,7 @@ mod model;
 mod node;
 mod param;
 mod partition;
+mod policy;
 mod run_dir;
 mod value;
 
@@ -28,6 +30,7 @@ pub use codec::{
     ArenaCodec, Codec, CodecConflict, CodecError, CodecRegistry, Encoded, F64Codec, F64VecCodec,
     I64Codec, I64VecCodec, StringCodec,
 };
+pub use command::EventSink;
 pub use engine::{CookOptions, Engine, EngineError, Observer};
 pub use exec::{Executor, Job, JobEvent, JobHandle, JobId, ThreadExecutor};
 pub use hash::ContentHash;
@@ -35,12 +38,13 @@ pub use history::{Editor, History};
 pub use item::{ItemGraph, ItemId, ItemRole, ItemState, WorkItem};
 pub use model::{Edit, Graph, GraphError, NodeData, NodeId, OutputRef};
 pub use node::{
-    CancelToken, CookContext, GenerateContext, GenerateWhen, InputMode, Inputs, ItemView, NewItem,
-    NodeError, NodeImpl, NodeKind, NodeSpec, Outputs, Partition, Partitioner, PortSpec, Processor,
-    Registry, SpecError,
+    CancelToken, CommandContext, CommandJob, CookContext, GenerateContext, GenerateWhen, InputMode,
+    Inputs, ItemView, NewItem, NodeError, NodeImpl, NodeKind, NodeSpec, Outputs, Partition,
+    Partitioner, PortSpec, Processor, Registry, SpecError,
 };
 pub use param::{AttrValue, Attributes, ParamKind, ParamSpec, ParamValue, Params};
 pub use partition::{PartitionByAttribute, WaitForAll};
+pub use policy::{FailurePolicy, Needs, OnFailure};
 pub use run_dir::{CacheEvent, ENTRY_FORMAT_VERSION, ENTRY_MAGIC, EntryError, RunDirCache};
 pub use value::Value;
 

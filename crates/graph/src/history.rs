@@ -180,6 +180,14 @@ impl Editor {
         })
     }
 
+    /// Set (`Some`) or clear (`None`) a node's display label. Its id never changes.
+    pub fn set_label(&mut self, node: &NodeId, label: Option<&str>) -> Result<(), GraphError> {
+        self.apply(Edit::SetLabel {
+            node: node.clone(),
+            label: label.map(str::to_owned),
+        })
+    }
+
     /// Connect `from` (an upstream output) to `to.input`. Refuses mismatched types and
     /// cycles.
     pub fn connect(
