@@ -24,7 +24,7 @@ gpui-fast.workspace = true
 windows.workspace = true
 
 [target.'cfg(windows)'.dev-dependencies]
-# The spike example uses the Kit's popup menu, the component the app will use.
+# The viewport example uses the Kit's popup menu, the component the app will use.
 gpui-kit = { workspace = true, features = ["component"] }
 
 [lints]

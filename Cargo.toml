@@ -48,7 +48,8 @@ polars = { version = "0.53.0", default-features = false }
 gpui-kit = { version = "=0.11.0", default-features = false, features = ["gpui-fast"] }
 # Pinned exactly although gpui-kit already requires it: `platform_handle()` is an
 # untyped `Any`, so a gpui-fast bump can break the viewport at run time, not compile
-# time (ADR-0002). Bump only together with a re-run of the viewport spike.
+# time (ADR-0002). Bump only together with a re-run of the viewport self-test
+# (`cargo run -p mold-ui-viewport --example viewport --release -- --self-test`).
 gpui-fast = { version = "=0.1.19", default-features = false }
 # render, ui-viewport. Exactly the wgpu gpui-fast-wgpu 0.1.19 pins for GPUI's Linux
 # renderer, so the tree holds one wgpu.

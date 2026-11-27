@@ -3,15 +3,13 @@
 //! See `CLAUDE.md` in this crate and ADR-0002 / ADR-0003.
 //!
 //! - [`backend`]: the seam, platform-neutral, no GPUI.
-//! - `element` (Windows only for now): the GPUI element and native surface.
-//! - [`spike`]: **week-0 spike code** (camera, picking, impostor renderer)
-//!   standing in for `mold-render` until WS-08 lands; not production code.
+//! - `element` (Windows only for now): the GPUI element and native surface,
+//!   feeding a [`mold_render::host::RenderHost`] (own device + render thread).
 //!
 //! GPUI is a dependency on Windows only until the macOS and Linux backends
 //! exist (ADR-0003), so the crate still builds and tests headless elsewhere.
 
 pub mod backend;
-pub mod spike;
 
 #[cfg(windows)]
 pub mod element;

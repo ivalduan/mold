@@ -1,23 +1,27 @@
-//! SPIKE ONLY (WS-00). The viewport's own wgpu device and render thread,
-//! drawing the spike scene as sphere impostors into the surface the
-//! [`ViewportBackend`](crate::backend::ViewportBackend) made.
+//! The interactive renderer: its own wgpu device and render thread, drawing a
+//! scene into a `wgpu::Surface` someone else created (the viewport's
+//! `ViewportBackend`). Commands come in over a channel, events go out over
+//! another; a slow frame blocks this thread only.
 //!
-//! This is the shape `mold-render` (WS-08) takes over, not its code: one
-//! device, one thread, commands in over a channel, events out over another.
-//! Nothing here sees GPUI. A slow frame blocks this thread only; the UI
-//! thread only ever sends messages.
+//! Knows nothing about GPUI: pointer events arrive already in the surface's
+//! physical pixels, stamped with the `Instant` the UI thread received them.
 
-use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use glam::Vec2;
+use glam::{Vec2, Vec3};
+use mold_mol::{Arena, PoseId};
 
-use super::camera::OrbitCamera;
-use super::pick::{Sphere, pick};
-use super::scene::{SphereInstance, SpikeScene};
+use crate::camera::OrbitCamera;
+use crate::gpu::Gpu;
+use crate::renderer::{FrameParams, FrameTargets, Pick, Renderer, pick};
+use crate::scene::Scene;
+use crate::style::Representation;
+
+/// The surface format the host configures. DX12 offers it on every surface.
+pub const SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
@@ -42,7 +46,7 @@ pub struct Pointer {
     pub kind: PointerKind,
     pub x: f32,
     pub y: f32,
-    /// In the window's logical pixels, for placing GPUI popups.
+    /// In the window's logical pixels, for placing popups.
     pub window_x: f32,
     pub window_y: f32,
     /// When the UI thread received the event: where click latency starts.
@@ -52,22 +56,32 @@ pub struct Pointer {
 /// UI thread → render thread.
 #[derive(Debug)]
 pub enum Msg {
-    /// The surface, already configured once on the UI thread.
+    /// The surface, already configured once by [`RenderHost::attach`].
     Attach(wgpu::Surface<'static>),
     Resize {
         width: u32,
         height: u32,
     },
     Pointer(Pointer),
+    /// Uploads an arena and its bonds (global atom index pairs) and frames it.
+    LoadScene {
+        arena: Arc<Arena>,
+        bonds: Vec<[u32; 2]>,
+    },
+    SetRepresentation(Representation),
+    /// Draw every pose (`None`) or only one.
+    ShowOnly(Option<PoseId>),
+    /// Frame the visible poses.
+    Fit,
     SetVisible(bool),
     /// Keep turning the camera, so every frame is a new one.
     SetSpin(bool),
-    /// Sleep this long in every frame, to show a slow frame does not block
-    /// the UI thread.
+    /// Sleep this long in every frame (shows a slow frame does not block the
+    /// UI thread).
     SetFrameDelay(Duration),
-    /// Self-test: click where atom `index` is drawn, as if at `at`.
+    /// Self-test: click where global atom `atom` is drawn, as if at `at`.
     ClickAtom {
-        index: usize,
+        atom: u32,
         at: Instant,
     },
     Shutdown,
@@ -87,6 +101,11 @@ pub enum Event {
         window_x: f32,
         window_y: f32,
     },
+    SceneLoaded {
+        atoms: u32,
+        bonds: u32,
+        poses: usize,
+    },
     Picked(PickReport),
     Stats(Stats),
     Failed(String),
@@ -94,8 +113,8 @@ pub enum Event {
 
 #[derive(Clone, Copy, Debug)]
 pub struct PickReport {
-    pub atom: Option<usize>,
-    /// CPU ray cast over all atoms.
+    pub hit: Option<Pick>,
+    /// GPU readback of the id under the pointer, including the wait.
     pub pick_us: f32,
     /// From the UI thread receiving the press to `present` returning for the
     /// first frame with the re-aimed camera. `None` on a miss.
@@ -110,13 +129,14 @@ pub struct Stats {
     pub frames_total: u64,
     pub fps: f32,
     /// Render-thread time per frame, including the wait for a swap-chain
-    /// image (vsync), so not a GPU or encode cost.
+    /// image (vsync), so not a GPU cost.
     pub cpu_frame_ms: f32,
     pub width: u32,
     pub height: u32,
 }
 
-/// The UI thread's side: the device surfaces are created on, and the channel.
+/// The UI thread's side: the instance and device surfaces are created on,
+/// and the channel to the render thread.
 #[derive(Debug)]
 pub struct RenderHost {
     instance: wgpu::Instance,
@@ -128,43 +148,32 @@ pub struct RenderHost {
 }
 
 impl RenderHost {
-    pub fn new(scene: SpikeScene, events: Sender<Event>) -> Result<Self, String> {
+    /// Creates the instance on `backends` (the viewport backend's, e.g. DX12
+    /// on Windows), the device, and the render thread.
+    pub fn new(backends: wgpu::Backends, events: Sender<Event>) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: crate::backend::wgpu_backends(),
+            backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .map_err(|e| {
-            format!(
-                "no wgpu adapter for {:?}: {e}",
-                crate::backend::wgpu_backends()
-            )
-        })?;
-        let info = adapter.get_info();
-        let adapter_name = format!("{} ({:?})", info.name, info.backend);
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("mold viewport (spike)"),
-            ..Default::default()
-        }))
-        .map_err(|e| format!("creating the viewport's wgpu device: {e}"))?;
+        let gpu = Gpu::from_instance(&instance, None, "mold viewport")
+            .map_err(|e| format!("{e} (backends {backends:?})"))?;
+        let adapter = gpu.adapter_name();
         let config = surface_config();
         let (commands, receiver) = mpsc::channel();
+        let device = gpu.device.clone();
         let thread = std::thread::Builder::new()
-            .name("mold-viewport".into())
+            .name("mold-render".into())
             .spawn({
-                let (device, config) = (device.clone(), config.clone());
+                let config = config.clone();
                 move || {
                     let failures = events.clone();
-                    device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
-                        eprintln!("wgpu error: {error}");
-                        failures.send(Event::Failed(error.to_string())).ok();
-                    }));
+                    gpu.device
+                        .on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+                            eprintln!("wgpu error: {error}");
+                            failures.send(Event::Failed(error.to_string())).ok();
+                        }));
                     // Pipelines compile here, off the UI thread.
-                    let renderer = Renderer::new(device, queue, config, scene, events);
-                    renderer.run(receiver);
+                    RenderLoop::new(gpu, config, events).run(receiver);
                 }
             })
             .map_err(|e| format!("spawning the render thread: {e}"))?;
@@ -174,7 +183,7 @@ impl RenderHost {
             config,
             commands,
             thread: Some(thread),
-            adapter: adapter_name,
+            adapter,
         })
     }
 
@@ -184,7 +193,7 @@ impl RenderHost {
 
     /// Configures `surface` on this thread and hands it to the render thread.
     /// The first configure is what attaches the swap chain to the native
-    /// surface, so the caller commits right after when the backend asks for it.
+    /// surface, so the caller commits right after when its backend asks.
     pub fn attach(&self, surface: wgpu::Surface<'static>) {
         surface.configure(&self.device, &self.config);
         self.send(Msg::Attach(surface));
@@ -211,8 +220,7 @@ impl Drop for RenderHost {
 fn surface_config() -> wgpu::SurfaceConfiguration {
     wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        // DX12 offers it on every surface.
-        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+        format: SURFACE_FORMAT,
         width: 1,
         height: 1,
         // vsync blocks only the render thread.
@@ -224,29 +232,8 @@ fn surface_config() -> wgpu::SurfaceConfiguration {
     }
 }
 
-/// wgpu's native futures are ready on first poll; no executor needed.
-fn block_on<F: Future>(future: F) -> F::Output {
-    let mut future = std::pin::pin!(future);
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    loop {
-        if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
-            return value;
-        }
-        std::thread::yield_now();
-    }
-}
-
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Globals {
-    view: [[f32; 4]; 4],
-    proj: [[f32; 4]; 4],
-    selected: [i32; 4],
-}
-
 struct Press {
+    button: Button,
     last: Vec2,
     dragged: bool,
 }
@@ -254,24 +241,28 @@ struct Press {
 /// A click waiting for the frame that shows its result.
 struct PendingPick {
     at: Instant,
-    atom: usize,
+    hit: Pick,
+    center: Vec3,
     pick_us: f32,
 }
 
-struct Renderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+struct Loaded {
+    arena: Arc<Arena>,
+    scene: Scene,
+}
+
+struct RenderLoop {
+    gpu: Gpu,
     config: wgpu::SurfaceConfiguration,
     surface: Option<wgpu::Surface<'static>>,
     events: Sender<Event>,
-    pipeline: wgpu::RenderPipeline,
-    globals: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    instances: wgpu::Buffer,
-    depth: Option<wgpu::TextureView>,
-    spheres: Vec<Sphere>,
+    renderer: Renderer,
+    targets: Option<FrameTargets>,
+    loaded: Option<Loaded>,
     camera: OrbitCamera,
-    selected: Option<usize>,
+    representation: Representation,
+    selected: Option<u32>,
+    fit_pending: bool,
     visible: bool,
     dirty: bool,
     spin: bool,
@@ -286,107 +277,21 @@ struct Renderer {
     last_report: Instant,
 }
 
-impl Renderer {
-    fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        config: wgpu::SurfaceConfiguration,
-        scene: SpikeScene,
-        events: Sender<Event>,
-    ) -> Self {
-        use wgpu::util::DeviceExt as _;
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("impostor (spike)"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("impostor.wgsl").into()),
-        });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("globals"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(size_of::<Globals>() as u64),
-                },
-                count: None,
-            }],
-        });
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("globals"),
-            size: size_of::<Globals>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("globals"),
-            layout: &layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("impostor (spike)"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("impostor (spike)"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: size_of::<SphereInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                // Reversed Z.
-                depth_compare: Some(wgpu::CompareFunction::Greater),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(config.format.into())],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-        let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("spheres"),
-            contents: bytemuck::cast_slice(&scene.atoms),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let camera = OrbitCamera::framing(scene.center, scene.radius);
+impl RenderLoop {
+    fn new(gpu: Gpu, config: wgpu::SurfaceConfiguration, events: Sender<Event>) -> Self {
+        let renderer = Renderer::new(&gpu.device, config.format);
         Self {
-            device,
-            queue,
+            gpu,
             config,
             surface: None,
             events,
-            pipeline,
-            globals,
-            bind_group,
-            instances,
-            depth: None,
-            spheres: scene.spheres().collect(),
-            camera,
+            renderer,
+            targets: None,
+            loaded: None,
+            camera: OrbitCamera::default(),
+            representation: Representation::default(),
             selected: None,
+            fit_pending: false,
             visible: true,
             dirty: true,
             spin: false,
@@ -449,25 +354,64 @@ impl Renderer {
             }
             Msg::Resize { width, height } => self.resize(width, height),
             Msg::Pointer(pointer) => self.pointer(pointer),
+            Msg::LoadScene { arena, bonds } => {
+                match Scene::new(&self.gpu.device, &self.renderer, &arena, &bonds) {
+                    Ok(scene) => {
+                        self.events
+                            .send(Event::SceneLoaded {
+                                atoms: scene.atom_count(),
+                                bonds: scene.bond_count(),
+                                poses: scene.pose_count(),
+                            })
+                            .ok();
+                        self.loaded = Some(Loaded { arena, scene });
+                        self.selected = None;
+                        self.fit_pending = true;
+                        self.dirty = true;
+                    }
+                    Err(error) => {
+                        self.events.send(Event::Failed(error.to_string())).ok();
+                    }
+                }
+            }
+            Msg::SetRepresentation(representation) => {
+                self.representation = representation;
+                self.dirty = true;
+            }
+            Msg::ShowOnly(pose) => {
+                if let Some(loaded) = &mut self.loaded {
+                    loaded.scene.show_only(pose);
+                    self.dirty = true;
+                }
+            }
+            Msg::Fit => {
+                self.fit_pending = true;
+                self.dirty = true;
+            }
             Msg::SetVisible(visible) => {
                 self.visible = visible;
                 self.press = None;
                 if visible {
                     self.dirty = true;
                 } else {
-                    // A hidden viewport gives up its depth target; the swap
-                    // chain keeps the last frame for when it comes back.
-                    self.depth = None;
+                    // A hidden viewport gives up its targets; the swap chain
+                    // keeps the last frame for when it comes back.
+                    self.targets = None;
                 }
             }
-            Msg::ClickAtom { index, at } => {
+            Msg::ClickAtom { atom, at } => {
+                self.fit_if_pending();
                 let (width, height) = self.size();
-                let Some(sphere) = self.spheres.get(index) else {
+                let center = self
+                    .loaded
+                    .as_ref()
+                    .and_then(|l| l.arena.positions().get(atom as usize).copied());
+                let Some(center) = center else {
                     return true;
                 };
-                match self.camera.project(sphere.center, width, height) {
+                match self.camera.project(Vec3::from(center), width, height) {
                     Some(pixel) => self.click(pixel, at),
-                    None => eprintln!("self-test: atom {index} is behind the camera"),
+                    None => eprintln!("self-test: atom {atom} is behind the camera"),
                 }
             }
             Msg::SetSpin(spin) => {
@@ -488,10 +432,10 @@ impl Renderer {
         self.config.width = width;
         self.config.height = height;
         if let Some(surface) = &self.surface {
-            surface.configure(&self.device, &self.config);
+            surface.configure(&self.gpu.device, &self.config);
             self.commit_pending = true;
         }
-        self.depth = None;
+        self.targets = None;
         self.dirty = true;
     }
 
@@ -501,12 +445,15 @@ impl Renderer {
             PointerKind::Down(button) => {
                 self.events.send(Event::Pressed).ok();
                 match button {
-                    Button::Left => {
+                    Button::Left | Button::Middle => {
                         self.press = Some(Press {
+                            button,
                             last: position,
                             dragged: false,
                         });
-                        self.click(position, pointer.at);
+                        if button == Button::Left {
+                            self.click(position, pointer.at);
+                        }
                     }
                     Button::Right => {
                         self.events
@@ -516,18 +463,23 @@ impl Renderer {
                             })
                             .ok();
                     }
-                    Button::Middle => {}
                 }
             }
-            PointerKind::Up(Button::Left) | PointerKind::Leave => self.press = None,
-            PointerKind::Up(_) => {}
+            PointerKind::Up(Button::Left | Button::Middle) | PointerKind::Leave => {
+                self.press = None
+            }
+            PointerKind::Up(Button::Right) => {}
             PointerKind::Move => {
+                let height = self.size().1;
                 if let Some(press) = &mut self.press {
                     let delta = position - press.last;
                     if press.dragged || delta.length() > 3.0 {
                         press.dragged = true;
                         press.last = position;
-                        self.camera.orbit(delta.x, delta.y);
+                        match press.button {
+                            Button::Middle => self.camera.pan(delta.x, delta.y, height),
+                            _ => self.camera.orbit(delta.x, delta.y),
+                        }
                         self.dirty = true;
                     }
                 }
@@ -539,27 +491,51 @@ impl Renderer {
         }
     }
 
-    /// Picks under `position` and, on a hit, re-aims at once: the next frame
-    /// is the re-aimed one, and its present closes the latency measurement.
+    /// Picks under `position` from the id target and, on a hit, re-aims at
+    /// once: the next frame is the re-aimed one, and its present closes the
+    /// latency measurement.
     fn click(&mut self, position: Vec2, at: Instant) {
-        let (width, height) = self.size();
+        // The id target must show what the camera shows now.
+        if self.dirty && self.visible && self.ready() {
+            self.frame();
+        }
         let started = Instant::now();
-        let ray = self
-            .camera
-            .ray_through(position.x, position.y, width, height);
-        let hit = pick(&ray, self.spheres.iter().copied());
+        let hit = match (&self.targets, &self.loaded) {
+            (Some(targets), Some(loaded)) => pick(
+                &self.gpu.device,
+                &self.gpu.queue,
+                targets,
+                &loaded.scene,
+                position.x,
+                position.y,
+            ),
+            _ => None,
+        };
         let pick_us = started.elapsed().as_secs_f32() * 1e6;
-        match hit {
-            Some((atom, _)) => {
-                self.camera.re_aim(self.spheres[atom].center);
-                self.selected = Some(atom);
+        let center = hit.and_then(|hit| {
+            let loaded = self.loaded.as_ref()?;
+            loaded
+                .arena
+                .positions()
+                .get(hit.atom as usize)
+                .map(|&p| Vec3::from(p))
+        });
+        match (hit, center) {
+            (Some(hit), Some(center)) => {
+                self.camera.re_aim(center);
+                self.selected = Some(hit.atom);
                 self.dirty = true;
-                self.pending_pick = Some(PendingPick { at, atom, pick_us });
+                self.pending_pick = Some(PendingPick {
+                    at,
+                    hit,
+                    center,
+                    pick_us,
+                });
             }
-            None => {
+            _ => {
                 self.events
                     .send(Event::Picked(PickReport {
-                        atom: None,
+                        hit: None,
                         pick_us,
                         click_to_present_ms: None,
                         centring_error_px: None,
@@ -569,32 +545,29 @@ impl Renderer {
         }
     }
 
-    fn ensure_depth(&mut self) -> wgpu::TextureView {
-        self.depth
-            .get_or_insert_with(|| {
-                self.device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some("depth"),
-                        size: wgpu::Extent3d {
-                            width: self.config.width,
-                            height: self.config.height,
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: DEPTH_FORMAT,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        view_formats: &[],
-                    })
-                    .create_view(&Default::default())
-            })
-            .clone()
+    fn fit_if_pending(&mut self) {
+        if !self.fit_pending || !self.ready() {
+            return;
+        }
+        self.fit_pending = false;
+        let (width, height) = self.size();
+        if let Some(loaded) = &self.loaded
+            && let Some(bounds) = loaded.scene.visible_bounds(&loaded.arena)
+        {
+            self.camera.fit(bounds, width / height);
+        }
     }
 
     fn frame(&mut self) {
         let started = Instant::now();
-        let depth = self.ensure_depth();
+        self.fit_if_pending();
+        if self.targets.is_none() {
+            self.targets = Some(FrameTargets::new(
+                &self.gpu.device,
+                self.config.width,
+                self.config.height,
+            ));
+        }
         let Some(surface) = &self.surface else {
             return;
         };
@@ -602,7 +575,7 @@ impl Renderer {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                surface.configure(&self.device, &self.config);
+                surface.configure(&self.gpu.device, &self.config);
                 self.commit_pending = true;
                 return;
             }
@@ -618,52 +591,26 @@ impl Renderer {
         if !self.frame_delay.is_zero() {
             std::thread::sleep(self.frame_delay);
         }
-        let (width, height) = self.size();
-        let globals = Globals {
-            view: self.camera.view().to_cols_array_2d(),
-            proj: self.camera.projection(width / height).to_cols_array_2d(),
-            selected: [self.selected.map_or(-1, |i| i as i32), 0, 0, 0],
-        };
-        self.queue
-            .write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         let view = frame.texture.create_view(&Default::default());
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("impostors (spike)"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.015,
-                            g: 0.02,
-                            b: 0.035,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: wgpu::StoreOp::Discard,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.instances.slice(..));
-            pass.draw(0..4, 0..self.spheres.len() as u32);
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        let params = FrameParams {
+            selected: self.selected,
+            ..FrameParams::new(self.camera, self.representation)
+        };
+        let targets = self.targets.as_ref().expect("created above");
+        match &self.loaded {
+            Some(loaded) => self.renderer.draw(
+                &self.gpu.queue,
+                &mut encoder,
+                &loaded.scene,
+                &params,
+                &view,
+                targets,
+            ),
+            None => clear(&mut encoder, &view),
         }
-        self.queue.submit([encoder.finish()]);
-        self.queue.present(frame);
+        self.gpu.queue.submit([encoder.finish()]);
+        self.gpu.queue.present(frame);
         self.dirty = false;
         self.frames_total += 1;
         self.frames_since_report += 1;
@@ -680,15 +627,15 @@ impl Renderer {
             self.events.send(Event::Ready).ok();
         }
         if let Some(pending) = self.pending_pick.take() {
+            let (width, height) = self.size();
             let click_to_present_ms = pending.at.elapsed().as_secs_f32() * 1000.0;
-            let center = self.spheres[pending.atom].center;
             let centring_error_px = self
                 .camera
-                .project(center, width, height)
+                .project(pending.center, width, height)
                 .map(|p| (p - Vec2::new(width, height) * 0.5).length());
             self.events
                 .send(Event::Picked(PickReport {
-                    atom: Some(pending.atom),
+                    hit: Some(pending.hit),
                     pick_us: pending.pick_us,
                     click_to_present_ms: Some(click_to_present_ms),
                     centring_error_px,
@@ -720,4 +667,25 @@ impl Renderer {
         self.cpu_ms_since_report = 0.0;
         self.last_report = Instant::now();
     }
+}
+
+/// An empty frame before a scene is loaded.
+fn clear(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    let [r, g, b] = crate::renderer::DEFAULT_CLEAR.map(f64::from);
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("clear"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a: 1.0 }),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
 }

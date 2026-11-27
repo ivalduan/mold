@@ -28,7 +28,7 @@ use gpui_kit::{
 };
 
 use crate::backend::ViewportBackend;
-use crate::spike::renderer::{Button, Msg, Pointer, PointerKind, RenderHost};
+use mold_render::host::{Button, Msg, Pointer, PointerKind, RenderHost};
 
 /// One viewport's native surface in the window, and the channel to the render
 /// thread that draws it.
@@ -142,7 +142,7 @@ impl Viewport {
     }
 
     /// Commits GPUI's composition, if the backend needs it. Call on
-    /// [`Event::CommitComposition`](crate::spike::renderer::Event).
+    /// [`Event::CommitComposition`](mold_render::host::Event::CommitComposition).
     ///
     /// gpui-fast has no public commit. `set_parent_origin` commits the
     /// DirectComposition device unconditionally on Windows (it re-applies the
