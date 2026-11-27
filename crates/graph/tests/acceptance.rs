@@ -244,7 +244,20 @@ struct Fixture {
 fn fixture(hooks: Hooks) -> Fixture {
     let log: Log = Log::default();
     let reg = Arc::new(registry(&log, hooks));
-    let mut ed = Editor::new(reg.clone());
+    let ed = pipeline(reg.clone());
+    let cache = Arc::new(MemoryCache::new());
+    let engine = Engine::new(reg, cache.clone()).with_executor(Arc::new(ThreadExecutor::new(4)));
+    Fixture {
+        log,
+        editor: ed,
+        engine,
+        cache,
+    }
+}
+
+/// The test pipeline (see the module docs), default params.
+fn pipeline(reg: Arc<Registry>) -> Editor {
+    let mut ed = Editor::new(reg);
     for (id, kind) in [
         ("ligands", "ligands"),
         ("prep", "prep"),
@@ -263,14 +276,7 @@ fn fixture(hooks: Hooks) -> Fixture {
     ed.connect("cofold.poses", &"gate".into(), "in").unwrap();
     ed.connect("gate.out", &"collect".into(), "in").unwrap();
     ed.connect("collect.out", &"summary".into(), "in").unwrap();
-    let cache = Arc::new(MemoryCache::new());
-    let engine = Engine::new(reg, cache.clone()).with_executor(Arc::new(ThreadExecutor::new(4)));
-    Fixture {
-        log,
-        editor: ed,
-        engine,
-        cache,
-    }
+    ed
 }
 
 fn take_log(log: &Log) -> Vec<String> {
@@ -663,4 +669,132 @@ fn graph_default_executor_completes_out_of_order_from_another_thread() {
 
     assert_eq!(items.count(&id("gate"), ItemState::Cooked), 6);
     assert_eq!(*deferred.submitted.lock().unwrap(), 3 + 3 + 1 + 6 + 6);
+}
+
+// ---- Cache hit across process restarts ----------------------------------------------
+
+/// Set (to a run directory) when this test binary re-invokes itself as the first process.
+const RESTART_CHILD: &str = "MOLD_GRAPH_RESTART_CHILD";
+
+/// The codecs the host registers for the test payloads.
+fn test_codecs() -> Arc<CodecRegistry> {
+    let mut c = CodecRegistry::new();
+    c.register(PortType::LigandSet, I64Codec)
+        .unwrap()
+        .register(PortType::PoseSet, I64Codec)
+        .unwrap()
+        .register(PortType::Structure, StringCodec)
+        .unwrap()
+        .register(PortType::Table, I64VecCodec)
+        .unwrap();
+    Arc::new(c)
+}
+
+/// What a fresh process builds: registry, graph, run-directory cache, engine.
+fn run_dir_fixture(dir: &std::path::Path) -> Fixture2 {
+    let log: Log = Log::default();
+    let reg = Arc::new(registry(&log, Hooks::default()));
+    let cache = Arc::new(RunDirCache::open(dir, test_codecs()).unwrap());
+    let engine =
+        Engine::new(reg.clone(), cache.clone()).with_executor(Arc::new(ThreadExecutor::new(4)));
+    Fixture2 {
+        log,
+        editor: pipeline(reg),
+        engine,
+        cache,
+    }
+}
+
+struct Fixture2 {
+    log: Log,
+    editor: Editor,
+    engine: Engine,
+    cache: Arc<RunDirCache>,
+}
+
+#[test]
+fn cache_hit_across_process_restarts_from_the_run_directory() {
+    // Child mode: be the first process, cook everything into the run directory.
+    if let Some(dir) = std::env::var_os(RESTART_CHILD) {
+        let f = run_dir_fixture(std::path::Path::new(&dir));
+        let items = f.engine.cook(f.editor.graph(), &[]).unwrap();
+        assert_eq!(take_log(&f.log).len(), 3 + 3 + 1 + 6 + 6 + 1);
+        assert!(items.all().all(|i| i.state == ItemState::Cooked));
+        assert!(f.cache.take_events().is_empty(), "everything persisted");
+        return;
+    }
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("mold-graph-restart-{}-{nanos}", std::process::id()));
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(dir.clone());
+
+    // 1. A real first process: this test binary, re-invoked on this test only.
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "cache_hit_across_process_restarts_from_the_run_directory",
+            "--exact",
+            "--test-threads=1",
+        ])
+        .env(RESTART_CHILD, &dir)
+        .status()
+        .unwrap();
+    assert!(status.success(), "first process failed: {status}");
+
+    // 2. This process starts cold: new registry, engine and cache over the directory.
+    let f = run_dir_fixture(&dir);
+    let items = f.engine.generate(f.editor.graph(), &[]).unwrap();
+    let work: Vec<&WorkItem> = items.all().filter(|i| i.role == ItemRole::Work).collect();
+    assert_eq!(
+        work.len(),
+        3 + 3 + 1 + 6 + 6 + 1,
+        "dynamic items too: parents are cached"
+    );
+    for it in &work {
+        assert_eq!(it.state, ItemState::Cached, "{} is a cache hit", it.id);
+    }
+    let summary = &items.items(&id("summary"))[0];
+    assert_eq!(
+        summary
+            .result
+            .as_ref()
+            .unwrap()
+            .get("table")
+            .unwrap()
+            .downcast_ref::<Vec<i64>>(),
+        Some(&vec![0, 1, 10, 11, 20, 21]),
+        "decoded results are the cooked ones"
+    );
+    let items = f.engine.cook(f.editor.graph(), &[]).unwrap();
+    assert!(take_log(&f.log).is_empty(), "nothing cooks after a restart");
+    assert_eq!(items.count(&id("gate"), ItemState::Cached), 6);
+    drop(f);
+
+    // 3. Another cold start, then a downstream param change: only gate items and their
+    // descendants cook; everything upstream comes from disk.
+    let mut f = run_dir_fixture(&dir);
+    f.editor.set_param(&id("gate"), "threshold", 0.9).unwrap();
+    let items = f.engine.cook(f.editor.graph(), &[]).unwrap();
+    let cooked = take_log(&f.log);
+    assert_eq!(cooked.iter().filter(|s| s.starts_with("gate[")).count(), 6);
+    assert_eq!(cooked.len(), 6 + 1, "gate items + summary only: {cooked:?}");
+    for n in ["ligands", "prep", "receptor", "cofold"] {
+        assert!(
+            items
+                .items(&id(n))
+                .iter()
+                .all(|i| i.state == ItemState::Cached),
+            "{n} items are cache hits from disk"
+        );
+    }
+    assert!(f.cache.take_events().is_empty());
 }

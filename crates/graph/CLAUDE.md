@@ -26,7 +26,7 @@ Read [docs/architecture.md](../../docs/architecture.md#execution-engine) first, 
 - [x] Changing a downstream parameter re-cooks only the affected items (cooks counted per item); upstream items are cache hits.
 - [x] Undo/redo restores the graph exactly; does not touch cached results.
 - [x] Mismatched-port and cycle connections are refused.
-- [ ] Cache hit across process restarts from the run directory (deferred: needs per-`PortType` payload codecs; `Cache` trait is the seam).
+- [x] Cache hit across process restarts from the run directory (`RunDirCache` + payload codecs; the test re-runs its own binary as the first process).
 
 ## Design notes
 Details in [DESIGN.md](DESIGN.md). In short:
@@ -35,3 +35,4 @@ Details in [DESIGN.md](DESIGN.md). In short:
 - **Generate when**: `EachUpstreamGenerated` (static, default), `EachUpstreamCooked` and `AllUpstreamCooked` (dynamic). Houdini's "all upstream generated" is omitted on purpose.
 - **Keys are Merkle-style** (a dependency contributes its key), so static item graphs are keyed and checked against the cache without cooking; dirtying is implicit in key changes.
 - **Executor seam**: `Executor::submit(Job, JobHandle)`; completion through the handle from any thread, any time; dropped handle = `Lost`. Default per graph (`Graph.executor`), override per node (`NodeData.executor`); not in cache keys.
+- **Run-directory cache**: `RunDirCache` (memory, then `<run-dir>/cache/<aa>/<hash>`, atomic temp+rename writes, checksummed entries; anything unreadable is a reported miss). Payloads persist through `Codec`s registered per `(PortType, codec id)` by the crate that owns the payload type; a result with an uncodable port stays in memory and `Cache::persistence` says so.
