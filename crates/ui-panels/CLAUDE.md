@@ -4,14 +4,51 @@ The linked views. Runs W4–W6.
 
 ## Scope
 - **Pose table**: GPUI Kit virtualized table over the Polars pose table; sort and filter read the table only.
-- **Scatter**: affinity vs. confidence (candidate: `gpui-plot` with its `plotters` backend).
+- **Scatter**: affinity vs. confidence. Base: **our own, on GPUI Kit's plot primitives** (see "Scatter plot base" below; `gpui-plot` rejected).
 - **2D SAR / R-group** view of ligands (2D depiction from `chem`).
-- **Selection bus**: one `mold_mol::Selection` broadcast to every panel; no panel owns it. The plot publishes on point click, the table on row click; the viewport subscribes. Define the bus in this crate (or `app`) on day one; linked views can't be bolted on later.
+- **Selection bus**: one `mold_mol::Selection` broadcast to every panel; no panel owns it. The plot publishes on point click, the table on row click; the viewport subscribes. Defined in this crate (`bus`, `view::SelectionHub`); the `app` crate owns the one instance.
 
 ## May depend on
-`mold-mol`, GPUI Kit, `gpui-plot`. Panels never touch the coordinate arena; only the viewport does.
+`mold-mol`, `polars` (workspace pin, no extra features), GPUI Kit (`cfg(windows)`, workspace pin + `component`). Panels never touch the coordinate arena; only the viewport does.
 
 ## Acceptance tests
-- [ ] Clicking a scatter point snaps the viewport to that pose in under 100 ms (with `ui-viewport`).
-- [ ] 300-ligand result set loads from cache and displays in under 2 s.
-- [ ] Table and plot stay in sync both directions.
+- [ ] Clicking a scatter point snaps the viewport to that pose in under 100 ms (with `ui-viewport`). *Needs the scatter (next PR) and the viewport's bus subscription (WS-08/WS-11).*
+- [ ] 300-ligand result set loads from cache and displays in under 2 s. *ui-panels' share is measured: building the table view model (read columns, sort, filter, format the first window) takes 56 µs at 300 poses and 1.06 ms at 10,000 (`cargo bench -p mold-ui-panels --bench table`, release); `tests/budget.rs` asserts generous limits (100 ms / 1 s) on every OS. mol's cache load is ~25 ms. The end-to-end check needs real poses from `nodes`.*
+- [ ] Table and plot stay in sync both directions. *The bus side is tested headless (`bus` tests: exactly-once delivery, echo, no feedback loop, late subscriber); the table side by hand with `examples/pose_table.rs` and its stand-in second panel. Closes with the scatter.*
+- [ ] GPUI smoke test that builds the table view: not yet (see Design notes).
+
+Headless tests that exist (every OS): `src/bus.rs` (bus semantics), `src/table/column.rs` (formats follow `SCHEMA`), `tests/table.rs` (sort per column type, stable, nulls last; filters; refused filters; row ⇄ `PoseId` across sort/filter; selection → visible/hidden/absent rows; clicks; window and scroll target; malformed tables), `tests/budget.rs`.
+
+## Layout of the crate
+- `src/bus.rs` — `SelectionBus`, `PanelId`, `Publication`. GPUI-free.
+- `src/table/` — `PoseTable` (typed column snapshot), `PoseTableModel` (sort, filter, mappings, clicks, formatting), `visible_rows`, `scroll_target`. GPUI-free.
+- `src/synthetic.rs` — seeded demo pose tables (examples, tests, bench).
+- `src/view/` — `cfg(windows)`: `SelectionHub` (the bus as a GPUI entity, `connect`), `PoseTableView` + `PoseTableDelegate` (GPUI Kit `DataTable`).
+- `examples/pose_table.rs` — 300 (or `--rows N`) synthetic poses, filter toolbar, stand-in second panel.
+- `benches/table.rs` — view-model build / resort / refilter at 300 and 10,000 poses.
+
+## Design notes
+- **Bus semantics** (`bus.rs`). Selection is state, not an event stream: each registered panel has one pending slot and a newer publication replaces an undelivered one (latest wins, no backlog). Every publish reaches every registered panel exactly once, the publisher included; its copy is its *echo* (`Publication::is_from(me)`), which panels ignore. Publishing a value equal to the current one is a no-op (no revision, nobody woken): that is what stops two panels that both republish on change from looping, even a panel that republishes its own echo. A panel registered after a publish finds the current value pending. Revisions increase by one per effective publish.
+- **GPUI wrapper** (`view::SelectionHub`). An entity around the one `SelectionBus`; GPUI only wakes panels. `publish` notifies the entity when the selection changed; `SelectionHub::connect(&hub, name, cx, on_selection)` registers the view, observes the hub and, on each notify, takes *its own* delivery from the bus, so the delivery rules are the tested headless ones. The initial value of a late connection is delivered with `cx.defer` after construction (a notify sent during construction can arrive before the observer is live). Releasing the view unregisters the panel. **For the app (WS-11)**: create one `cx.new(|_| SelectionHub::new())` and hand the `Entity` to every panel. **For the viewport (WS-08/WS-11)**: connect the same way (`SelectionHub::connect(&hub, "viewport", cx, …)`) and send a re-aim message to `RenderHost` on a non-echo delivery; a viewport pick publishes with its own `PanelId`. No dependency on `ui-viewport` either way. A headless consumer (e.g. a render-thread bridge) can use `SelectionBus` directly.
+- **Table core reads the pose table only.** `PoseTable::from_frame` copies the `SCHEMA` columns that are present into typed vectors (13 columns × 10,000 rows is small); missing contract columns are not shown, columns outside the contract are ignored, `pose_id` is required, non-null and unique. The model never reorders the `DataFrame`: it keeps a sorted permutation of table rows, the filtered display rows, and table row → display row. Sorting is stable (ties keep table order), missing values (null, NaN) last in both directions; filters are AND-ed, a missing value fails every predicate, a filter naming an absent column or the wrong type is refused and the old one stays.
+- **Polars features: none added.** Sort and filter run on the extracted vectors, so the member uses `polars` with the workspace's `default-features = false`. `cargo tree -p mold-ui-panels -e normal | grep tokio` is empty (2026-11-27).
+- **Selection ⇄ rows.** `map_selection` splits a `Selection` into visible display rows, poses hidden by the filter and poses absent from this table; none of them is an error. The atom mask is ignored (the table works on whole poses). Clicks: plain = select one; Ctrl = toggle, keeping the rest, *including hidden poses*; Shift = range from the anchor in display order (a plain click if the anchor is hidden). The status line counts hidden and absent selected poses.
+- **Virtualization is GPUI Kit's.** `DataTable` over `TableState<PoseTableDelegate>` renders rows through `uniform_list` and asks the delegate for the cells of visible rows only; formatting happens per visible cell. The core's `visible_rows` is the same arithmetic, used by the budget test and bench; `scroll_target` decides whether an incoming selection scrolls (only if no selected row is on screen, then to the first one).
+- **Row selection is ours, not the Kit's.** The Kit's `TableState` selects one row and emits `SelectRow` also for programmatic `set_selected_row` (an echo trap). We turn its row selection off (`row_selectable(false)`), attach our own click handler in `render_tr` (modifiers → `ClickKind`), publish on the bus, and draw the highlight in `render_tr` from the last delivered `Selection`. One path for both directions: the table's own click is highlighted when its echo arrives. Cost: no keyboard row navigation yet.
+- **Sorting** goes through the Kit's sortable headers → `TableDelegate::perform_sort` → `PoseTableModel::set_sort`; the highlight follows because it is computed from `PoseId`s.
+- **Overlay rule (ADR-0003)**: the panels paint no popups over the viewport. If one is ever docked over it, wrap its root in `deferred(..)`.
+- **GPUI smoke test**: as in `ui-graph`, GPUI Kit's `test-support` feature would unify into every Windows `cargo test --workspace` build of the GPUI tree (`ui-viewport` included), so the decision is left to the app/CI owners; the view is exercised by the example meanwhile.
+- **Linux/macOS**: the views are `cfg(windows)` like `ui-viewport`/`ui-graph`; nothing in `src/view/` is Windows-specific. Lifting the gate needs only the Linux CI packages listed in ADR-0003.
+
+## Scatter plot base (evaluated 2026-11-27, for the next PR)
+Rubric (ADR-0004 + product-owner rule 2026-11-27): adopt only for **significant** leverage, and only if it doesn't own our data model or event loop, is generic over our data, builds against our pinned lineage (GPUI Kit `=0.11.0` / GPUI Fast `=0.1.19`, never upstream Zed `gpui`), has a compatible licence and is alive.
+
+| Candidate | What it is | Verdict |
+|---|---|---|
+| **`gpui-plot`** ([JakkuSakura/gpui-plot](https://github.com/JakkuSakura/gpui-plot) @ `c6bc65a`, 2025-04-13; crates.io 0.1.1 is an empty placeholder) | Figures/axes with pan + zoom, markers, optional `plotters` backend; ~2.1 k lines, MIT, 59 stars | **Rejected.** Upstream Zed `gpui` from git (`rev 044eb7b`) plus `[patch.crates-io]` forks of `plotters`/`plotters-backend`/`pathfinder_simd`: cannot coexist with GPUI Fast (ADR-0002). Owns the data: `AxesModel` keeps `Vec<Box<dyn GeometryAxes>>` copies of what it draws. No point picking (click → datum), only pan/zoom. Inactive since 2025-04. |
+| `plotters-gpui` (same author) | `plotters` drawing backend for GPUI | Rejected: same upstream-GPUI pin; `plotters` draws static charts, no picking. |
+| **`gpui-liveplot`** 0.4.0 ([Modolet/gpui-liveplot](https://github.com/Modolet/gpui-liveplot), 2026-11-10, MIT, ~6.9 k lines) | Append-only streaming plots: line/scatter series, decimation, pan/zoom/box-zoom, hover, pins, linked plots | Best of the field, still **rejected**: depends on `gpui-kit ^0.9`, not our `=0.11.0` (two Kits, incompatible types), so it fails the lineage test today. Series own their data (`Arc<RwLock<SeriesStore>>`, append-only) with no per-point identity, so mapping a click to a `PoseId` and highlighting a `Selection` subset needs a second copy keyed by index; pins are internal state, not a click event. Its strength (decimating millions of streaming samples) is not our problem: ≤ 10,000 static points. |
+| Others seen (`gpui-luma-plot`, `ruviz-gpui`, `dodai-charts`, `gpui-px`/`gpui-d3rs`) | Various | Rejected on lineage alone: `gpui-unofficial`, crates.io `gpui 0.2`, or their own UI kits. |
+| **GPUI Kit's own plot layer** (`gpui_kit::base::plot`, Apache-2.0, already in our tree) | Unstyled `ScaleLinear`, `PlotAxis`, `Grid`, labels, `Plot`/`PlotElement`, hover tracking; `gpui-component` builds its charts (line, bar, area, …) on it. **No scatter chart.** | Not a crate to adopt: it is our lineage already. Use its scales, axes and grid. |
+
+**Recommendation: build our own scatter** in this crate, shaped like the table: a GPUI-free core (`scatter`: axis ranges from the pose table, data ↔ screen transform, nearest-point hit test in screen px, box selection → `Selection`, which points to emphasise for the current `Selection`), tested headless; and a thin `cfg(windows)` view that paints the points with GPUI (quads, or `PathBuilder` for ≤ 10 k markers) over `gpui_kit::base::plot::{ScaleLinear, PlotAxis, Grid}` and publishes on click through `SelectionHub`. Nothing third-party is added. Revisit `gpui-liveplot` only if it moves to our Kit pin and grows per-point ids and a click event, and if we then need streaming/decimation.
