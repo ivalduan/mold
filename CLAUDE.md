@@ -5,7 +5,7 @@ Mold is an open-source, Rust-powered, node-based workbench for structural biolog
 ## You are probably in a worktree
 Each workstream runs in its own git worktree on branch `ws/<name>` ([docs/worktrees.md](docs/worktrees.md)). Find your workstream in [docs/workstreams.md](docs/workstreams.md). **Stay inside the crates your workstream owns.** If you need a change in another crate, stop and say so; don't make it.
 
-If you are the **orchestrator** in the main checkout (briefing agents, reviewing and landing their PRs), follow [docs/orchestration.md](docs/orchestration.md) and check the status table in [docs/workstreams.md](docs/workstreams.md#status-2026-11-24).
+If you are the **orchestrator** in the main checkout (briefing agents, reviewing and landing their PRs), follow [docs/orchestration.md](docs/orchestration.md) and check the status table in [docs/workstreams.md](docs/workstreams.md#status-2026-11-27).
 
 ## Non-negotiables (product principles)
 1. **Hub, not rewrite.** Rust builds the hub; chemistry/physics come from wrapped engines (RDKit via `rdkit-sys`, OpenMM, Boltz-2, Vina).
