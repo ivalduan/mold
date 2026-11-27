@@ -10,10 +10,12 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::PortType;
 use crate::item::ItemId;
 use crate::param::{AttrValue, Attributes, ParamSpec, Params};
+use crate::policy::Needs;
 use crate::value::Value;
 
 /// How an input port relates the node's items to the upstream node's items.
@@ -236,6 +238,13 @@ pub trait Processor: Send + Sync + 'static {
     /// version). Called once per cook, on the scheduler thread; keep it cheap.
     fn fingerprint(&self, _params: &Params) -> Vec<u8> {
         Vec::new()
+    }
+
+    /// What one item occupies while it runs (ADR-0009 §5): slots, GPUs, memory.
+    /// Default: 1 slot, no GPU, no memory limit. Called on the scheduler thread when
+    /// the item is submitted; keep it cheap. Not part of the cache key.
+    fn needs(&self, _params: &Params, _attrs: &Attributes) -> Needs {
+        Needs::default()
     }
 
     /// **Command path, phase 1** (controller side). Write the item's inputs into
@@ -510,6 +519,8 @@ pub enum NodeError {
     /// The item has no Rust cook (a worker node) and its executor cannot run command
     /// jobs (e.g. the in-process [`ThreadExecutor`](crate::ThreadExecutor)).
     NoCommandExecutor,
+    /// An attempt ran longer than its node's `timeout` and was cancelled.
+    TimedOut(Duration),
 }
 
 impl NodeError {
@@ -526,6 +537,7 @@ impl fmt::Display for NodeError {
             Self::Panicked(m) => write!(f, "panicked: {m}"),
             Self::InvalidOutput(m) => write!(f, "invalid output: {m}"),
             Self::Lost => write!(f, "job lost by its executor"),
+            Self::TimedOut(d) => write!(f, "timed out after {:.3} s", d.as_secs_f64()),
             Self::NoCommandExecutor => write!(
                 f,
                 "no executor for command jobs: this node runs as a command job \
@@ -537,21 +549,38 @@ impl fmt::Display for NodeError {
 
 impl std::error::Error for NodeError {}
 
-/// A shared cancellation flag. Clones share the flag.
+/// A shared cancellation flag. Clones share the flag; a [`child`](Self::child) is
+/// cancelled with its parent, but cancelling it leaves the parent alone (the engine
+/// gives each job a child of the cook's token, so a timeout stops one job).
 #[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(Arc<CancelInner>);
+
+#[derive(Debug, Default)]
+struct CancelInner {
+    flag: AtomicBool,
+    parent: Option<CancelToken>,
+}
 
 impl CancelToken {
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// A token cancelled when this one is, or on its own.
+    pub fn child(&self) -> Self {
+        Self(Arc::new(CancelInner {
+            flag: AtomicBool::new(false),
+            parent: Some(self.clone()),
+        }))
+    }
+
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.0.flag.store(true, Ordering::Relaxed);
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.0.flag.load(Ordering::Relaxed)
+            || self.0.parent.as_ref().is_some_and(|p| p.is_cancelled())
     }
 }
 

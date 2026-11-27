@@ -15,6 +15,7 @@ use crate::hash::ContentHash;
 use crate::item::ItemId;
 use crate::node::{CancelToken, CookContext, Inputs, NodeError, Outputs, Processor};
 use crate::param::{Attributes, Params};
+use crate::policy::{FailurePolicy, Needs};
 
 /// Identifies one submitted job within a cook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -31,7 +32,16 @@ pub struct Job {
     pub params: Arc<Params>,
     pub attrs: Attributes,
     pub inputs: Inputs,
+    /// This job's token: cancelled with the cook, or alone (timeout).
     pub cancel: CancelToken,
+    /// What the item occupies ([`Processor::needs`]); for executors with capacity.
+    pub needs: Needs,
+    /// The node's failure policy. The engine enforces retries, timeout and
+    /// `on_failure` itself; executors may read it (e.g. to set a remote time limit).
+    pub policy: FailurePolicy,
+    /// 0 for the first attempt, then 1, 2, … per retry. A retry must run in a fresh
+    /// run directory (ADR-0009 §7): name it after (`key`, `attempt`).
+    pub attempt: u32,
 }
 
 impl fmt::Debug for Job {
@@ -40,6 +50,7 @@ impl fmt::Debug for Job {
             .field("id", &self.id)
             .field("item", &self.item)
             .field("kind", &self.kind)
+            .field("attempt", &self.attempt)
             .finish()
     }
 }

@@ -10,12 +10,14 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::PortType;
 use crate::node::{NodeSpec, Registry};
 use crate::param::{ParamKind, ParamValue, Params};
+use crate::policy::{FailurePolicy, OnFailure};
 
 /// Stable node id, unique within a graph. Survives save/load and undo.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -73,10 +75,22 @@ impl From<&str> for OutputRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeData {
     pub kind: String,
-    /// **Reserved.** Which executor runs this node (local threads, subprocess, farm).
-    /// `None` = the graph's default, else the engine's. The selection logic is not designed yet (see `jobs`).
+    /// Which executor runs this node (in-process threads, local subprocess, SSH, farm):
+    /// a key resolved by [`Engine::add_executor`](crate::Engine::add_executor).
+    /// `None` = the graph's default, else the engine's. Not part of any cache key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executor: Option<String>,
+    /// Failure policy (ADR-0009 §7): extra attempts after a failure. Default 0.
+    /// Like `executor`, the policy fields are not part of any cache key.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub retries: u32,
+    /// Failure policy: maximum run time of one attempt, in seconds (finite, > 0).
+    /// `None` (default) = no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<f64>,
+    /// Failure policy: what a failure means for the rest of the cook. Default `error`.
+    #[serde(default, skip_serializing_if = "OnFailure::is_error")]
+    pub on_failure: OnFailure,
     #[serde(default, skip_serializing_if = "params_empty")]
     pub params: Params,
     /// Input port name → the upstream output feeding it. An edge lives here, on its
@@ -89,13 +103,33 @@ fn params_empty(p: &Params) -> bool {
     p.0.is_empty()
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 impl NodeData {
     pub fn new(kind: impl Into<String>) -> Self {
         Self {
             kind: kind.into(),
             executor: None,
+            retries: 0,
+            timeout: None,
+            on_failure: OnFailure::Error,
             params: Params::new(),
             inputs: BTreeMap::new(),
+        }
+    }
+
+    /// The failure policy as executors and the engine use it. A `timeout` that is not
+    /// finite and positive (refused by [`Graph::validate`]) counts as none.
+    pub fn failure_policy(&self) -> FailurePolicy {
+        FailurePolicy {
+            retries: self.retries,
+            timeout: self
+                .timeout
+                .filter(|s| s.is_finite() && *s > 0.0)
+                .and_then(|s| Duration::try_from_secs_f64(s).ok()),
+            on_failure: self.on_failure,
         }
     }
 }
@@ -182,6 +216,11 @@ pub enum GraphError {
         node: NodeId,
         input: String,
     },
+    /// A node's `timeout` is not a finite, positive number of seconds.
+    InvalidTimeout {
+        node: NodeId,
+        seconds: f64,
+    },
 }
 
 impl fmt::Display for GraphError {
@@ -216,6 +255,10 @@ impl fmt::Display for GraphError {
             ),
             Self::Cycle { at } => write!(f, "connection would create a cycle through `{at}`"),
             Self::NotConnected { node, input } => write!(f, "`{node}.{input}` is not connected"),
+            Self::InvalidTimeout { node, seconds } => write!(
+                f,
+                "node `{node}`: timeout must be a positive number of seconds, not {seconds}"
+            ),
         }
     }
 }
@@ -360,6 +403,7 @@ impl Graph {
             for (input, src) in &data.inputs {
                 self.check_edge(reg, src, id, spec, input)?;
             }
+            check_policy(id, data)?;
         }
         self.topo_order().map(|_| ())
     }
@@ -375,6 +419,7 @@ impl Graph {
                 for (name, value) in node.params.iter() {
                     check_param(&id, spec, name, value)?;
                 }
+                check_policy(&id, &node)?;
                 for (input, src) in &node.inputs {
                     if src.node == id {
                         return Err(GraphError::Cycle { at: id });
@@ -525,6 +570,18 @@ impl Graph {
 fn spec_of<'r>(reg: &'r Registry, kind: &str) -> Result<&'r NodeSpec, GraphError> {
     reg.spec(kind)
         .ok_or_else(|| GraphError::UnknownKind(kind.to_owned()))
+}
+
+fn check_policy(id: &NodeId, node: &NodeData) -> Result<(), GraphError> {
+    match node.timeout {
+        Some(s) if !(s.is_finite() && s > 0.0 && Duration::try_from_secs_f64(s).is_ok()) => {
+            Err(GraphError::InvalidTimeout {
+                node: id.clone(),
+                seconds: s,
+            })
+        }
+        _ => Ok(()),
+    }
 }
 
 fn check_param(

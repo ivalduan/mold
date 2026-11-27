@@ -21,6 +21,7 @@ mod model;
 mod node;
 mod param;
 mod partition;
+mod policy;
 mod run_dir;
 mod value;
 
@@ -43,6 +44,7 @@ pub use node::{
 };
 pub use param::{AttrValue, Attributes, ParamKind, ParamSpec, ParamValue, Params};
 pub use partition::{PartitionByAttribute, WaitForAll};
+pub use policy::{FailurePolicy, Needs, OnFailure};
 pub use run_dir::{CacheEvent, ENTRY_FORMAT_VERSION, ENTRY_MAGIC, EntryError, RunDirCache};
 pub use value::Value;
 

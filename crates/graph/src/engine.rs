@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::cache::Cache;
 use crate::exec::{Executor, Job, JobEvent, JobHandle, JobId, ThreadExecutor};
@@ -21,6 +21,7 @@ use crate::node::{
     Registry,
 };
 use crate::param::{Attributes, Params, hash_attrs};
+use crate::policy::FailurePolicy;
 
 /// Why a cook could not start.
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +161,7 @@ struct NodeRun {
     per_item: Option<Bound>,
     broadcast: Vec<Bound>,
     executor: Arc<dyn Executor>,
+    policy: FailurePolicy,
     /// Generation finished: no more items will appear.
     done: bool,
     /// Upstream items already handled (`EachUpstreamCooked`).
@@ -174,8 +176,21 @@ struct Run<'e, 'o> {
     cooking: bool,
     opts: CookOptions<'o>,
     tx: Sender<(JobId, JobEvent)>,
-    in_flight: HashMap<JobId, usize>,
+    in_flight: HashMap<JobId, InFlight>,
     next_job: u64,
+    /// Per item: attempts made after the first (retries used).
+    retried: HashMap<usize, u32>,
+    /// Per item: failed or cancelled in a way fan-in tolerates (`on_failure` warn or
+    /// ignore, or cancelled only because of such failures). Partitions drop these.
+    tolerated: Vec<bool>,
+}
+
+/// A submitted job the run is waiting for.
+struct InFlight {
+    item: usize,
+    cancel: CancelToken,
+    /// Set when the executor reports `started` and the node has a timeout.
+    deadline: Option<Instant>,
 }
 
 impl<'e, 'o> Run<'e, 'o> {
@@ -259,6 +274,7 @@ impl<'e, 'o> Run<'e, 'o> {
                 per_item,
                 broadcast,
                 executor,
+                policy: data.failure_policy(),
                 done: false,
                 processed: BTreeSet::new(),
             });
@@ -273,6 +289,8 @@ impl<'e, 'o> Run<'e, 'o> {
             tx,
             in_flight: HashMap::new(),
             next_job: 0,
+            retried: HashMap::new(),
+            tolerated: Vec::new(),
         })
     }
 
@@ -491,6 +509,7 @@ impl<'e, 'o> Run<'e, 'o> {
         let i = self.items.items.len();
         self.items.items.push(item);
         self.item_node.push(n);
+        self.tolerated.push(false);
         self.items
             .by_node
             .get_mut(&self.nodes[n].id)
@@ -577,6 +596,11 @@ impl<'e, 'o> Run<'e, 'o> {
         own: &Attributes,
         merged: Attributes,
     ) {
+        // Members whose failure fan-in tolerates (`on_failure` warn/ignore) are dropped.
+        let members: Vec<usize> = members
+            .into_iter()
+            .filter(|&m| !self.tolerated[m])
+            .collect();
         let node = &self.nodes[n];
         let mut h = KeyHasher::new("mold-graph/partition/v1");
         h.str(&node.spec.kind);
@@ -623,12 +647,18 @@ impl<'e, 'o> Run<'e, 'o> {
                 continue;
             }
             let deps = &self.items.items[i].deps;
-            if deps.iter().any(|(_, d)| {
-                matches!(
-                    self.items.items[*d].state,
-                    ItemState::Failed | ItemState::Cancelled
-                )
-            }) {
+            let failed: Vec<usize> = deps
+                .iter()
+                .map(|&(_, d)| d)
+                .filter(|&d| {
+                    matches!(
+                        self.items.items[d].state,
+                        ItemState::Failed | ItemState::Cancelled
+                    )
+                })
+                .collect();
+            if !failed.is_empty() {
+                self.tolerated[i] = failed.iter().all(|&d| self.tolerated[d]);
                 self.set_state(i, ItemState::Cancelled, Some(NodeError::Cancelled));
                 changed = true;
             } else if deps
@@ -663,6 +693,12 @@ impl<'e, 'o> Run<'e, 'o> {
         }
         let id = JobId(self.next_job);
         self.next_job += 1;
+        let attrs = self.items.attrs_of(i);
+        let needs = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            processor.needs(&node.params, &attrs)
+        }))
+        .unwrap_or_default();
+        let cancel = self.opts.cancel.child();
         let item = &self.items.items[i];
         let job = Job {
             id,
@@ -671,22 +707,38 @@ impl<'e, 'o> Run<'e, 'o> {
             kind: node.spec.kind.clone(),
             processor,
             params: node.params.clone(),
-            attrs: self.items.attrs_of(i),
+            attrs,
             inputs,
-            cancel: self.opts.cancel.clone(),
+            cancel: cancel.clone(),
+            needs,
+            policy: node.policy,
+            attempt: self.retried.get(&i).copied().unwrap_or(0),
         };
         let executor = node.executor.clone();
-        self.in_flight.insert(id, i);
+        self.in_flight.insert(
+            id,
+            InFlight {
+                item: i,
+                cancel,
+                deadline: None,
+            },
+        );
         self.set_state(i, ItemState::Scheduled, None);
         executor.submit(job, JobHandle::new(id, self.tx.clone()));
     }
 
     fn on_event(&mut self, id: JobId, ev: JobEvent) {
-        let Some(&i) = self.in_flight.get(&id) else {
+        let Some(job) = self.in_flight.get_mut(&id) else {
             return;
         };
+        let i = job.item;
         match ev {
-            JobEvent::Started => self.set_state(i, ItemState::Cooking, None),
+            JobEvent::Started => {
+                if let Some(t) = self.nodes[self.item_node[i]].policy.timeout {
+                    job.deadline.get_or_insert_with(|| Instant::now() + t);
+                }
+                self.set_state(i, ItemState::Cooking, None)
+            }
             JobEvent::Partial(o) => {
                 self.items.items[i].partial = Some(o);
                 self.notify(i);
@@ -706,9 +758,43 @@ impl<'e, 'o> Run<'e, 'o> {
                     Err(NodeError::Cancelled) => {
                         self.set_state(i, ItemState::Cancelled, Some(NodeError::Cancelled))
                     }
-                    Err(e) => self.set_state(i, ItemState::Failed, Some(e)),
+                    Err(e) => self.failed(i, e),
                 }
             }
+        }
+    }
+
+    /// An attempt of item `i` failed: retry it if its node allows, else mark it failed.
+    fn failed(&mut self, i: usize, e: NodeError) {
+        let policy = self.nodes[self.item_node[i]].policy;
+        let retried = self.retried.entry(i).or_insert(0);
+        if *retried < policy.retries && !self.opts.cancel.is_cancelled() {
+            *retried += 1;
+            self.items.items[i].partial = None;
+            self.submit(i);
+        } else {
+            self.tolerated[i] = policy.on_failure.tolerated();
+            self.set_state(i, ItemState::Failed, Some(e));
+        }
+    }
+
+    /// Cancel every job past its deadline; the attempt fails with `TimedOut`. A late
+    /// report from it is discarded, so it never reaches the cache.
+    fn check_timeouts(&mut self) {
+        let now = Instant::now();
+        let expired: Vec<JobId> = self
+            .in_flight
+            .iter()
+            .filter(|(_, j)| j.deadline.is_some_and(|d| d <= now))
+            .map(|(&id, _)| id)
+            .collect();
+        for id in expired {
+            let job = self.in_flight.remove(&id).expect("in flight");
+            job.cancel.cancel();
+            let n = self.item_node[job.item];
+            self.nodes[n].executor.cancel(id);
+            let t = self.nodes[n].policy.timeout.unwrap_or_default();
+            self.failed(job.item, NodeError::TimedOut(t));
         }
     }
 
@@ -732,6 +818,7 @@ impl<'e, 'o> Run<'e, 'o> {
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => unreachable!("the run holds a sender"),
             }
+            self.check_timeouts();
         }
         // Anything still waiting can never run (e.g. its generation was cut short).
         for i in 0..self.items.items.len() {
@@ -743,9 +830,9 @@ impl<'e, 'o> Run<'e, 'o> {
 
     fn cancel_all(&mut self) {
         self.items.cancelled = true;
-        let ids: Vec<(JobId, usize)> = self.in_flight.drain().collect();
-        for (id, i) in ids {
-            self.nodes[self.item_node[i]].executor.cancel(id);
+        let jobs: Vec<(JobId, InFlight)> = self.in_flight.drain().collect();
+        for (id, job) in jobs {
+            self.nodes[self.item_node[job.item]].executor.cancel(id);
         }
         for i in 0..self.items.items.len() {
             if !self.items.items[i].state.is_terminal() {
