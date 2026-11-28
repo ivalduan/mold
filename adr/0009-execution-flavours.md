@@ -88,6 +88,16 @@ Per node, outside cache keys: `retries` (default 0), `timeout` (default none), `
 - **Batching** several items into one job (Q1 remainder): later, as batch items, for farms that dislike many small jobs.
 - Persistent worker pools/services (ADR-0010's deferred list), remote caches, cloud backends.
 
+## Implementation notes (WS-05, 2026-11-28): how §2-§4 and §7 came out for SSH
+These refine the decision; they do not change it. Code: `crates/jobs/src/ssh.rs`, design notes in `crates/jobs/CLAUDE.md`.
+
+- **The system `ssh`/`scp` clients as subprocesses, no SSH crate.** The protocol is already stdio and `ssh` is a transport for stdio, so the local runner is reused unchanged and the event stream is byte-identical between flavours (asserted). No new dependency; the user's own `~/.ssh/config`, `known_hosts` and agent apply; and with `BatchMode=yes` **no credential passes through Mold** (§4). The costs: up to five short-lived clients per item, and no connection reuse (`ControlMaster` does not exist on Windows OpenSSH). A persistent connection, or batching items, is a later optimisation behind the same seam (§8).
+- **The remote process group** (§7) is made by the login shell's job control (`set -m` + `&`), so the worker's pid is its pgid; the wrapper records it in `<attempt>.pgid` beside the run directory and kills that group itself after `wait`. Cancel and timeout run a **second `ssh`** that kills the group: killing the local client is not enough. The two race each other safely because the killer writes an `<attempt>.cancel` sentinel *before* reading the pgid, while the wrapper writes the pgid *before* re-reading the sentinel. `ssh -tt` was rejected (a pty rewrites the event stream).
+- **Staging** (§3) is `scp`: a fresh remote run directory per (item key, attempt), the declared inputs out, the artifacts back by copying the remote run directory into the local one's parent (the names match, so the controller's `job.json`/`events.ndjson`/`stderr.log` survive). The inputs are removed on the host after a successful run, so the copy back carries artifacts only.
+- **The remote run directory's life**: removed after the item succeeds, **kept after a failure or a cancel** for inspection (the mirror of keeping a failed local attempt), always kept with `keep_run_dir = true`.
+- **`shared_fs`** is read as *the host's view of this executor's run root*, so the remote run directory is `<shared_fs>/<item key>/<attempt>` and staging, setup and cleanup are all skipped. The `JobSpec` is unaffected, as §3 requires.
+- **Profiles** (§4) gained `ssh_program`, `scp_program`, `connect_timeout_s` and `keep_run_dir`. The two program fields are command lines, which is also how the tests inject an `ssh`-shaped double, so the SSH path is covered in CI with no network and no `sshd`.
+
 ## Consequences
 - `jobs` (WS-05) is **unblocked**: local + SSH executors, manifest validation, staging, slot accounting, cancellation, profile loading. First PR: local executor running `mock-cofold` end to end through prepare/run/collect, with poses streaming as partial outputs.
 - A small PR to `main` changes the node trait (§1) before `jobs` and `nodes` build on it.
