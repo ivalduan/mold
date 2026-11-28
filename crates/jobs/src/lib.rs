@@ -7,6 +7,8 @@
 //!   plus an optional site file; a built-in `local`).
 //! - [`LocalExecutor`]: command items as subprocesses here, WSL2 included, with slot,
 //!   GPU and memory accounting and process-tree kill.
+//! - [`SshExecutor`]: the same, on a remote host over the system `ssh` client, with
+//!   the run directory staged out and the artifacts staged back.
 //! - [`Executors`]: builds the executors a graph names, failing **before** the cook on
 //!   an unknown key.
 //!
@@ -20,6 +22,7 @@ mod profile;
 pub mod protocol;
 mod runner;
 mod sched;
+mod ssh;
 mod wsl;
 
 use std::collections::BTreeMap;
@@ -33,10 +36,12 @@ pub use local::LocalExecutor;
 pub use manifest::{Environment, MANIFEST_FILE, Manifest, Workers};
 pub use process::pid_alive;
 pub use profile::{
-    LOCAL, Origin, Profile, ProfileSources, Profiles, SITE_FILE_VAR, SshTarget, Target, Wsl,
+    DEFAULT_CONNECT_TIMEOUT_S, DEFAULT_RUN_ROOT, LOCAL, Origin, Profile, ProfileSources, Profiles,
+    SITE_FILE_VAR, SshTarget, Target, Wsl,
 };
 pub use runner::{EVENTS_FILE, SPEC_FILE, STDERR_FILE};
 pub use sched::{CommandExecutor, Notice};
+pub use ssh::{SSH_KILL_FILE, SSH_LOG_FILE, SshExecutor};
 pub use wsl::wsl_path;
 
 /// The executors of one machine: profiles, workers and a run root, turned into
@@ -63,8 +68,9 @@ impl Executors {
         &self.profiles
     }
 
-    /// The executor for `key`, built on first use. `used_by` names who asks, for the
-    /// error message.
+    /// The executor for `key`, built on first use: a [`LocalExecutor`] or an
+    /// [`SshExecutor`], as the profile says. `used_by` names who asks, for the error
+    /// message.
     pub fn executor(
         &self,
         key: &str,
@@ -77,7 +83,10 @@ impl Executors {
         let profile = self.profiles.resolve(key, used_by)?;
         let workers = self.workers.clone();
         let run_root = self.run_root.join(key);
-        let e: Arc<dyn CommandExecutor> = Arc::new(LocalExecutor::new(profile, workers, run_root)?);
+        let e: Arc<dyn CommandExecutor> = match &profile.target {
+            Target::Local { .. } => Arc::new(LocalExecutor::new(profile, workers, run_root)?),
+            Target::Ssh(_) => Arc::new(SshExecutor::new(profile, workers, run_root)?),
+        };
         built.insert(key.to_string(), e.clone());
         Ok(e)
     }

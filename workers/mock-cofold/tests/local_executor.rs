@@ -628,24 +628,24 @@ fn an_unknown_executor_key_fails_before_any_item_runs() {
 }
 
 #[test]
-fn an_ssh_profile_is_refused_before_cooking_for_now() {
+fn an_ssh_profile_builds_the_ssh_executor_and_is_flagged_as_remote() {
     let tmp = TempDir::new("ssh");
     let shared = Arc::new(Shared::default());
     let reg = registry(1, &shared);
     let ex = Executors::new(
         profiles(
-            "[executor.box]
-type = \"ssh\"
-host = \"gpu-box\"
-",
+            "[executor.box]\ntype = \"ssh\"\nhost = \"gpu-box\"\n[executor.here]\nslots = 1\n",
         ),
         workers(),
         &tmp.0,
     );
     let g = graph(&reg, Some("box"), &[]);
+    // The UI must say that data leaves the machine before the first item is sent.
     assert_eq!(ex.remote_keys(&g), ["box"], "the UI can announce it");
-    let err = ex.check(&g).unwrap_err().to_string();
-    assert!(err.contains("SSH executors are not available yet"), "{err}");
+    ex.check(&g).expect("an ssh key is now a working executor");
+    assert!(ex.executor("box", vec![]).unwrap().is_remote());
+    assert!(!ex.executor("here", vec![]).unwrap().is_remote());
+    // Checking a key builds its executor but runs nothing.
     assert_eq!(shared.prepares(), 0);
 }
 

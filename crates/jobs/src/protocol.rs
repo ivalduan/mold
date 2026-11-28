@@ -269,8 +269,9 @@ fn snippet(text: &str) -> String {
     }
 }
 
-/// A path relative to the run directory that cannot leave it (ADR-0005).
-fn check_relative(path: &Path) -> Result<(), String> {
+/// A path relative to the run directory that cannot leave it (ADR-0005). Also what
+/// the SSH flavour checks a staged path against before it reaches a remote shell.
+pub(crate) fn check_relative(path: &Path) -> Result<(), String> {
     let s = path.to_string_lossy();
     if s.is_empty() {
         return Err("is empty".into());

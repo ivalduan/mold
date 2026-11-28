@@ -29,7 +29,8 @@ command_executor!(LocalExecutor);
 
 impl LocalExecutor {
     /// An executor for `profile` (a local or WSL2 one), launching `workers`, with run
-    /// directories under `run_root`. An SSH profile is refused: not in this version.
+    /// directories under `run_root`. An SSH profile belongs to
+    /// [`SshExecutor`](crate::SshExecutor) and is refused here.
     pub fn new(
         profile: &Profile,
         workers: Arc<Workers>,
@@ -40,8 +41,7 @@ impl LocalExecutor {
             Target::Ssh(_) => {
                 return Err(ConfigError::NotYet {
                     key: profile.key.clone(),
-                    what: "SSH executors are not available yet (planned: stdio over SSH                            with run-directory staging, ADR-0009 §2-3)"
-                        .into(),
+                    what: "an ssh profile needs the SSH executor, not the local one".into(),
                 });
             }
         };
