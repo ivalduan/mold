@@ -2,6 +2,8 @@
 //! tests that need a Rust reference for its output (parity: the same item cooked
 //! in-process and through the worker must give identical results).
 
+pub mod double;
+
 use std::collections::BTreeMap;
 
 /// Where the worker writes pose `sample` of ligand record `ligand`, relative to the

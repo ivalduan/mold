@@ -149,7 +149,8 @@ fn valid_name(s: &str) -> bool {
 }
 
 /// Split a command line on whitespace; `"double quotes"` group words (no escapes).
-fn split_words(s: &str) -> Result<Vec<String>, String> {
+/// Used for a manifest's `executable` and for a profile's `ssh_program`/`scp_program`.
+pub(crate) fn split_words(s: &str) -> Result<Vec<String>, String> {
     let mut words = Vec::new();
     let mut cur = String::new();
     let (mut quoted, mut any) = (false, false);

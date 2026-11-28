@@ -58,6 +58,8 @@ Score keys should use the pose-table column names (`plddt`, `iptm`, `affinity_pr
 | hangs | the node's `timeout` (engine) cancels it; the tree is killed |
 | writes no event within 60 s of starting (or the node's `timeout`, if longer) | fails; the tree is killed |
 
+Over SSH the same table holds, with the transport's own failures named from `ssh`'s exit status: 255 (host unreachable, authentication refused, or the connection dropped mid-run), 127 (the worker's executable is not on the remote `PATH`), 126 (the remote run directory or the worker could not be used), 143 (cancelled before the worker started).
+
 ## Manifest (`workers/<name>/manifest.toml`)
 Schema and validation: [crates/jobs/src/manifest.rs](../crates/jobs/src/manifest.rs). Unknown keys are refused.
 
@@ -74,7 +76,22 @@ Schema and validation: [crates/jobs/src/manifest.rs](../crates/jobs/src/manifest
 An invalid manifest fails the load of the workers directory, naming the file and the problem, before any executor exists.
 
 ## Backends
-Decided in [ADR-0009](../adr/0009-execution-flavours.md): this protocol is the payload of **every** execution flavour. The `local` executor (incl. WSL2 via a `wsl.exe` prefix: only the run directory's path is translated) and the `ssh` executor (stdio over the SSH connection, run directory staged in and out; not yet built) send the same `JobSpec` and read the same event stream; Slurm and other batch schedulers later append the same lines to `run_dir/events.ndjson`. The job spec and event stream must not change between local and remote execution: that's the test of whether this protocol is designed right.
+Decided in [ADR-0009](../adr/0009-execution-flavours.md): this protocol is the payload of **every** execution flavour. The `local` executor (incl. WSL2 via a `wsl.exe` prefix: only the run directory's path is translated) and the `ssh` executor send the same `JobSpec` and read the same event stream; Slurm and other batch schedulers later append the same lines to `run_dir/events.ndjson`. The job spec and event stream must not change between local and remote execution: that's the test of whether this protocol is designed right, and `workers/mock-cofold/tests/ssh_executor.rs` asserts it byte for byte between the two.
+
+### Over SSH
+A worker needs nothing new to run on a remote host; what follows is what the host needs.
+
+- The worker is started by the **system `ssh` client** (`-T`, so no pty: a pty would rewrite the event stream), with the `JobSpec` on stdin and the NDJSON on stdout, exactly as locally. `BatchMode=yes`: a host that would prompt for a credential fails instead.
+- The host needs a **POSIX login shell** (`sh`, `bash`, `dash`, `ksh`, `zsh`) with job control, and `cat`/`rm`/`mkdir`/`kill`. Mold installs nothing.
+- The worker's `executable` must be on the **remote** `PATH` (or be an absolute path): the controller's worker search path says nothing about the host. A missing one is reported as such (the remote shell's 127).
+- **The run directory is staged** (ADR-0009 §3): the node's declared inputs are copied to `<run_root>/<item key>/<attempt>` on the host before the run, and the artifacts are copied back after it, so the worker still sees every path relative to its working directory. `run_root` defaults to `~/.mold/runs`. A profile with `shared_fs` skips the copying.
+- `job.json`, `events.ndjson` and `stderr.log` stay on the **controller**; they are not written on the host. The executor also writes `ssh.log` (what the clients printed) and, if it had to kill the run, `ssh-kill.log`.
+- **Reserved on the host**, beside the run directory: `<attempt>.pgid` (the worker's process group) and `<attempt>.cancel` (the sentinel that stops a run that has not started). A worker must not write outside its own run directory anyway.
+- **Cancellation and timeout kill the remote process group**, over a second connection. A worker that calls `setsid` escapes it, as locally; none of ours do.
+- A remote run directory is **removed after the item succeeds** and **kept after a failure or a cancel**, for inspection.
+
+## Changes in the SSH PR (v1 unchanged: no wire change)
+The `ssh` flavour sends the same bytes and reads the same lines. What is new above is only what the **host** must provide and what the executor writes where: the staged run directory, the reserved `<attempt>.pgid` / `<attempt>.cancel` siblings, `ssh.log` / `ssh-kill.log` on the controller, and the exit-status clauses.
 
 ## Changes in the first `jobs` PR (v1 stays v1: no worker implemented the draft)
 - `run_dir` is always `"."`; the worker's working directory is its run directory (was: an absolute path).

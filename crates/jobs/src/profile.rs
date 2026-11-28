@@ -14,12 +14,19 @@
 //! gpus = 1
 //! wsl = { distro = "Ubuntu-24.04" }   # `wsl = {}` = the default distro
 //!
-//! [executor.gpu-box]          # parsed, not run yet
+//! [executor.gpu-box]
 //! type = "ssh"
-//! host = "gpu-box.lab.example"
-//! user = "alice"
+//! host = "gpu-box.lab.example"   # resolved by the user's own ~/.ssh/config
+//! user = "alice"                 # optional; the config's user otherwise
+//! port = 2222                    # optional
 //! slots = 8
 //! gpus = 2
+//! run_root = "/scratch/mold"     # where run directories are staged (default ~/.mold/runs)
+//! # shared_fs = "/net/ws/runs"   # this machine's run root as the host sees it: skip staging
+//! # ssh_program = "ssh"          # the client to run; "double quotes" group words
+//! # scp_program = "scp"
+//! # connect_timeout_s = 15
+//! # keep_run_dir = false         # true: never delete a remote run directory
 //! ```
 
 use std::collections::BTreeMap;
@@ -87,16 +94,51 @@ pub struct Wsl {
     pub distro: Option<String>,
 }
 
-/// A remote host over SSH. Parsed and validated; running it is a later PR.
+/// A remote host over SSH, run by [`SshExecutor`](crate::SshExecutor) through the
+/// system `ssh` and `scp` clients (ADR-0009 §2-4), so the user's own `~/.ssh/config`
+/// and agent apply and no credential ever passes through Mold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshTarget {
     pub host: String,
     pub user: Option<String>,
     pub port: Option<u16>,
     /// Remote directory under which run directories are staged.
+    /// `None` = [`DEFAULT_RUN_ROOT`].
     pub run_root: Option<String>,
-    /// The remote path of a filesystem shared with this machine: skip staging.
+    /// This machine's run root as the host sees it (a shared filesystem): staging is
+    /// skipped and the worker runs in the run directory itself. An optimisation, not
+    /// a requirement (ADR-0009 §3).
     pub shared_fs: Option<String>,
+    /// The `ssh` client: program plus fixed arguments (`ssh_program`). Default `ssh`.
+    pub ssh: Vec<String>,
+    /// The `scp` client, used for staging (`scp_program`). Default `scp`.
+    pub scp: Vec<String>,
+    /// `ConnectTimeout` for every `ssh`/`scp` this executor runs.
+    pub connect_timeout_s: u32,
+    /// Keep remote run directories even after an item succeeds (for inspection).
+    pub keep_run_dir: bool,
+}
+
+/// Where run directories go on a host whose profile names no `run_root`. Relative,
+/// so the login shell resolves it in the remote home directory.
+pub const DEFAULT_RUN_ROOT: &str = ".mold/runs";
+
+/// `ConnectTimeout` when a profile names none.
+pub const DEFAULT_CONNECT_TIMEOUT_S: u32 = 15;
+
+impl SshTarget {
+    /// `user@host`, or `host` when the profile names no user (`~/.ssh/config` may).
+    pub fn destination(&self) -> String {
+        match &self.user {
+            Some(u) => format!("{u}@{}", self.host),
+            None => self.host.clone(),
+        }
+    }
+
+    /// The remote directory run directories are staged under.
+    pub fn root(&self) -> &str {
+        self.run_root.as_deref().unwrap_or(DEFAULT_RUN_ROOT)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +215,10 @@ struct Raw {
     port: Option<u16>,
     run_root: Option<String>,
     shared_fs: Option<String>,
+    ssh_program: Option<String>,
+    scp_program: Option<String>,
+    connect_timeout_s: Option<u32>,
+    keep_run_dir: Option<bool>,
 }
 
 /// Every executor key this machine defines.
@@ -287,6 +333,10 @@ fn validate(key: &str, raw: Raw, origin: Origin) -> Result<Profile, String> {
         ("port", raw.port.is_some()),
         ("run_root", raw.run_root.is_some()),
         ("shared_fs", raw.shared_fs.is_some()),
+        ("ssh_program", raw.ssh_program.is_some()),
+        ("scp_program", raw.scp_program.is_some()),
+        ("connect_timeout_s", raw.connect_timeout_s.is_some()),
+        ("keep_run_dir", raw.keep_run_dir.is_some()),
     ];
     let (target, remote) = match raw.kind {
         Kind::Local => {
@@ -306,12 +356,54 @@ fn validate(key: &str, raw: Raw, origin: Origin) -> Result<Profile, String> {
                 .host
                 .filter(|h| !h.trim().is_empty())
                 .ok_or("an ssh profile needs `host`")?;
+            // A `host` that looks like an option or a destination would land in ssh's
+            // argv; refuse it here rather than build a surprising command line.
+            if host.starts_with('-') || host.contains([' ', '\t', '\n', ':', '/']) {
+                return Err(format!(
+                    "`host` {host:?} must be a host name or alias from ~/.ssh/config, \
+                     with no option, path or port in it"
+                ));
+            }
+            if let Some(u) = &raw.user
+                && (u.trim().is_empty() || u.contains(['@', ' ', '\t', '\n']))
+            {
+                return Err(format!("`user` {u:?} is not a user name"));
+            }
+            for (field, path) in [
+                ("run_root", raw.run_root.as_ref()),
+                ("shared_fs", raw.shared_fs.as_ref()),
+            ] {
+                if path.is_some_and(|p| p.trim().is_empty() || p.contains(['\n', '\'']))
+                    || path.is_some_and(|p| p.ends_with('/'))
+                {
+                    return Err(format!(
+                        "`{field}` must be a remote path with no trailing slash, \
+                         newline or quote"
+                    ));
+                }
+            }
+            let client = |field: &str, raw: Option<String>, default: &str| {
+                let text = raw.unwrap_or_else(|| default.to_string());
+                match crate::manifest::split_words(&text) {
+                    Ok(words) if words.is_empty() => Err(format!("`{field}` is empty")),
+                    Ok(words) => Ok(words),
+                    Err(_) => Err(format!("`{field}` has an unclosed quote")),
+                }
+            };
+            let timeout = raw.connect_timeout_s.unwrap_or(DEFAULT_CONNECT_TIMEOUT_S);
+            if timeout == 0 {
+                return Err("`connect_timeout_s` must be at least 1".into());
+            }
             let target = Target::Ssh(SshTarget {
                 host,
                 user: raw.user,
                 port: raw.port,
                 run_root: raw.run_root,
                 shared_fs: raw.shared_fs,
+                ssh: client("ssh_program", raw.ssh_program, "ssh")?,
+                scp: client("scp_program", raw.scp_program, "scp")?,
+                connect_timeout_s: timeout,
+                keep_run_dir: raw.keep_run_dir.unwrap_or(false),
             });
             (target, true)
         }
