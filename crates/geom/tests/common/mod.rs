@@ -1,66 +1,42 @@
-//! Test-only helpers: a minimal V2000 molfile reader, a minimal CSV reader, and
-//! fixture loading. Not public API — SDF/molfile reading belongs in `mol` or
-//! `chem`; this exists only so geom's tests can load ligands with their bonds.
+//! Test-only helpers: fixture loading (ligands through `mold_mol::sdf`,
+//! proteins through `mold_mol::io`), a minimal CSV reader, and seeded poses.
+//! Not public API.
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use mold_geom::{Bond, BondOrder};
+use mold_geom::Bond;
 use mold_mol::{Arena, Element, LoadOptions};
 
-/// A ligand as read from a V2000 molfile: positions, elements, bonds.
+/// A ligand as `mold_mol::sdf` reads it: positions, elements and pose-local bonds.
 #[derive(Debug, Clone)]
-pub struct Molfile {
+pub struct Ligand {
     pub positions: Vec<[f32; 3]>,
     pub elements: Vec<Element>,
     pub bonds: Vec<Bond>,
 }
 
-fn field(line: &str, range: std::ops::Range<usize>) -> &str {
-    let end = range.end.min(line.len());
-    line.get(range.start.min(end)..end).unwrap_or("").trim()
-}
-
-/// Read the first record of a V2000 molfile/SDF. Panics on anything malformed:
-/// fixtures are trusted, and a loud failure is what a test wants.
-pub fn read_molfile(text: &str) -> Molfile {
-    let lines: Vec<&str> = text.lines().collect();
-    let counts = lines[3];
-    assert!(
-        counts.contains("V2000"),
-        "only V2000 molfiles are supported"
-    );
-    let n_atoms: usize = field(counts, 0..3).parse().expect("atom count");
-    let n_bonds: usize = field(counts, 3..6).parse().expect("bond count");
-    let mut m = Molfile {
-        positions: Vec::with_capacity(n_atoms),
-        elements: Vec::with_capacity(n_atoms),
-        bonds: Vec::with_capacity(n_bonds),
-    };
-    for line in &lines[4..4 + n_atoms] {
-        let x: f32 = field(line, 0..10).parse().expect("x");
-        let y: f32 = field(line, 10..20).parse().expect("y");
-        let z: f32 = field(line, 20..30).parse().expect("z");
-        let symbol = field(line, 31..34);
-        m.positions.push([x, y, z]);
-        m.elements
-            .push(Element::from_symbol(symbol).unwrap_or_else(|| panic!("element {symbol:?}")));
+/// The first record of an SDF file, through mol's reader. Panics on anything
+/// malformed: fixtures are trusted, and a loud failure is what a test wants.
+pub fn read_ligand(path: &Path) -> Ligand {
+    let mut arena = Arena::new();
+    let read =
+        mold_mol::sdf::read_sdf_file(&mut arena, path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+    assert!(read.errors.is_empty(), "{path:?}: {:?}", read.errors);
+    let pose = read.records[0].pose;
+    let range = arena.pose(pose).expect("pose").atoms.clone();
+    Ligand {
+        positions: arena.positions()[range.clone()].to_vec(),
+        elements: arena.elements()[range.clone()].to_vec(),
+        bonds: arena
+            .pose_bonds(pose)
+            .expect("bonds")
+            .iter()
+            .map(|b| b.relative_to(range.start))
+            .collect(),
     }
-    for line in &lines[4 + n_atoms..4 + n_atoms + n_bonds] {
-        let a: u32 = field(line, 0..3).parse().expect("bond atom 1");
-        let b: u32 = field(line, 3..6).parse().expect("bond atom 2");
-        let order = match field(line, 6..9) {
-            "1" => BondOrder::Single,
-            "2" => BondOrder::Double,
-            "3" => BondOrder::Triple,
-            "4" => BondOrder::Aromatic,
-            other => panic!("unsupported bond type {other:?}"),
-        };
-        m.bonds.push((a - 1, b - 1, order));
-    }
-    m
 }
 
 /// Parse CSV with a header row into one map per record. Handles quoted fields
@@ -101,9 +77,8 @@ pub fn posebusters_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/posebusters")
 }
 
-pub fn load_ligand(relative: &str) -> Molfile {
-    let path = posebusters_dir().join(relative);
-    read_molfile(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}")))
+pub fn load_ligand(relative: &str) -> Ligand {
+    read_ligand(&posebusters_dir().join(relative))
 }
 
 /// A protein PDB loaded through `mold_mol::io`: every atom of the single pose.

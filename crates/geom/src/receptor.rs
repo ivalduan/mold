@@ -450,7 +450,7 @@ pub fn detect_covalent_attachments(
 /// the bonded pair itself, the ligand atom with the protein atom's covalent
 /// neighbours (1-3 across the bond), and the ligand atom's bonded neighbours
 /// with the protein atom (1-3 the other way). Protein neighbours are found by
-/// distance (within 1.2 × the covalent radius sum), since the arena has no bonds.
+/// distance (within 1.2 × the covalent radius sum), since PDB/mmCIF poses carry no bonds in the arena.
 pub fn covalent_exclusions(
     receptor: &Receptor,
     topology: &Topology,

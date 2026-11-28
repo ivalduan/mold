@@ -1,7 +1,7 @@
-//! Ligand topology: the bond graph the arena deliberately does not carry.
+//! Ligand topology: the bond graph plus everything derived from it.
 //!
 //! A [`Topology`] is built once per ligand (elements + an explicit bond list,
-//! e.g. from an SDF) and then reused for every pose of that ligand: it
+//! e.g. an SDF pose's bonds via [`Topology::from_arena`]) and then reused for every pose of that ligand: it
 //! precomputes everything the ligand-internal checks need that depends only
 //! on connectivity — rings, aromaticity, hybridisation, reference bond lengths
 //! and 1-3 distances, and the non-bonded pair list.
@@ -13,21 +13,15 @@
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
 
-use mold_mol::Element;
+use mold_mol::{Arena, Element, PoseId};
 
 use crate::radii::{reference_bond_length, vdw_radius};
 
-/// Bond order as given by the input (V2000 bond types 1–4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BondOrder {
-    Single,
-    Double,
-    Triple,
-    Aromatic,
-}
-
-/// One bond: two atom indices into the ligand's position/element slices, and its order.
-pub type Bond = (u32, u32, BondOrder);
+/// mol's bond types are geom's: a [`Topology`] takes [`Bond`]s with **pose-local**
+/// atom indices (into the ligand's position/element slices), i.e. what
+/// [`Bond::relative_to`] gives for an arena pose. [`Topology::from_arena`] does
+/// that subtraction itself.
+pub use mold_mol::{Bond, BondOrder};
 
 /// Orbital hybridisation as far as geometry needs it: it sets the ideal bond angle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +43,8 @@ pub enum TopologyError {
     SelfBond { bond: usize },
     /// The same atom pair is bonded twice.
     DuplicateBond { bond: usize },
+    /// [`Topology::from_arena`] was given a pose the arena does not have.
+    NoSuchPose(PoseId),
 }
 
 impl fmt::Display for TopologyError {
@@ -59,6 +55,7 @@ impl fmt::Display for TopologyError {
             }
             TopologyError::SelfBond { bond } => write!(f, "bond {bond} joins an atom to itself"),
             TopologyError::DuplicateBond { bond } => write!(f, "bond {bond} is a duplicate"),
+            TopologyError::NoSuchPose(id) => write!(f, "the arena has no pose {}", id.0),
         }
     }
 }
@@ -120,12 +117,13 @@ fn is_hydrogen(e: Element) -> bool {
 }
 
 impl Topology {
-    /// Build the graph for atoms with these `elements` and `bonds`.
+    /// Build the graph for atoms with these `elements` and `bonds` (pose-local
+    /// atom indices, `0..elements.len()`).
     pub fn new(elements: &[Element], bonds: &[Bond]) -> Result<Topology, TopologyError> {
         let n = elements.len();
         let mut neighbours = vec![Vec::new(); n];
         let mut seen = HashSet::new();
-        for (i, &(a, b, order)) in bonds.iter().enumerate() {
+        for (i, &Bond { a, b, order }) in bonds.iter().enumerate() {
             for atom in [a, b] {
                 if atom as usize >= n {
                     return Err(TopologyError::AtomOutOfRange { bond: i, atom });
@@ -158,6 +156,19 @@ impl Topology {
         t.angle_refs = t.build_angle_refs();
         t.non_bonded = t.build_non_bonded();
         Ok(t)
+    }
+
+    /// Build the graph of one arena pose from its elements and its bonds
+    /// ([`Arena::pose_bonds`], made pose-local). Indices in the result are
+    /// pose-local, matching [`Arena::pose_positions`]. A pose without bonds
+    /// (PDB/mmCIF) gives a valid topology with no edges.
+    pub fn from_arena(arena: &Arena, pose: PoseId) -> Result<Topology, TopologyError> {
+        let (Some(p), Some(bonds)) = (arena.pose(pose), arena.pose_bonds(pose)) else {
+            return Err(TopologyError::NoSuchPose(pose));
+        };
+        let start = p.atoms.start;
+        let local: Vec<Bond> = bonds.iter().map(|b| b.relative_to(start)).collect();
+        Topology::new(&arena.elements()[p.atoms.clone()], &local)
     }
 
     pub fn atom_count(&self) -> usize {
@@ -268,7 +279,7 @@ impl Topology {
     fn perceive_rings(&self) -> Vec<Vec<u32>> {
         let mut rings: Vec<Vec<u32>> = Vec::new();
         let mut keys: HashSet<Vec<u32>> = HashSet::new();
-        for &(a, b, _) in &self.bonds {
+        for &Bond { a, b, .. } in &self.bonds {
             if let Some(path) = self.shortest_path_avoiding_edge(a, b) {
                 let mut key = path.clone();
                 key.sort_unstable();
@@ -381,10 +392,11 @@ impl Topology {
     fn build_bond_refs(&self) -> Vec<BondRef> {
         self.bonds
             .iter()
-            .filter(|(a, b, _)| {
-                !is_hydrogen(self.elements[*a as usize]) && !is_hydrogen(self.elements[*b as usize])
+            .filter(|bond| {
+                !is_hydrogen(self.elements[bond.a as usize])
+                    && !is_hydrogen(self.elements[bond.b as usize])
             })
-            .map(|&(a, b, given)| {
+            .map(|&Bond { a, b, order: given }| {
                 let order = self.effective_order(a, b, given);
                 BondRef {
                     a,
@@ -509,9 +521,13 @@ mod tests {
     const N: Element = Element::N;
     const O: Element = Element::O;
 
+    fn bond(a: u32, b: u32, order: BondOrder) -> Bond {
+        Bond { a, b, order }
+    }
+
     fn ring_bonds(n: u32, orders: &[BondOrder]) -> Vec<Bond> {
         (0..n)
-            .map(|i| (i, (i + 1) % n, orders[i as usize % orders.len()]))
+            .map(|i| bond(i, (i + 1) % n, orders[i as usize % orders.len()]))
             .collect()
     }
 
@@ -538,30 +554,30 @@ mod tests {
         use BondOrder::*;
         // Atoms 0-9; ring A: 0,1,2,3,4,9 ; ring B: 4,5,6,7,8,9 ; fusion bond 4-9.
         let form1 = vec![
-            (0, 1, Double),
-            (1, 2, Single),
-            (2, 3, Double),
-            (3, 4, Single),
-            (4, 9, Double),
-            (9, 0, Single),
-            (4, 5, Single),
-            (5, 6, Double),
-            (6, 7, Single),
-            (7, 8, Double),
-            (8, 9, Single),
+            bond(0, 1, Double),
+            bond(1, 2, Single),
+            bond(2, 3, Double),
+            bond(3, 4, Single),
+            bond(4, 9, Double),
+            bond(9, 0, Single),
+            bond(4, 5, Single),
+            bond(5, 6, Double),
+            bond(6, 7, Single),
+            bond(7, 8, Double),
+            bond(8, 9, Single),
         ];
         let form2 = vec![
-            (0, 1, Double),
-            (1, 2, Single),
-            (2, 3, Double),
-            (3, 4, Single),
-            (4, 9, Single),
-            (9, 0, Single),
-            (4, 5, Double),
-            (5, 6, Single),
-            (6, 7, Double),
-            (7, 8, Single),
-            (8, 9, Double),
+            bond(0, 1, Double),
+            bond(1, 2, Single),
+            bond(2, 3, Double),
+            bond(3, 4, Single),
+            bond(4, 9, Single),
+            bond(9, 0, Single),
+            bond(4, 5, Double),
+            bond(5, 6, Single),
+            bond(6, 7, Double),
+            bond(7, 8, Single),
+            bond(8, 9, Double),
         ];
         for bonds in [form1, form2] {
             let t = Topology::new(&[C; 10], &bonds).unwrap();
@@ -576,23 +592,23 @@ mod tests {
         use BondOrder::*;
         // pyrrole: N0 C1=C2 C3=C4
         let pyrrole = [
-            (0, 1, Single),
-            (1, 2, Double),
-            (2, 3, Single),
-            (3, 4, Double),
-            (4, 0, Single),
+            bond(0, 1, Single),
+            bond(1, 2, Double),
+            bond(2, 3, Single),
+            bond(3, 4, Double),
+            bond(4, 0, Single),
         ];
         let t = Topology::new(&[N, C, C, C, C], &pyrrole).unwrap();
         assert_eq!(t.aromatic_rings().count(), 1);
         // 2-pyridone: N0 C1(=O6) C2=C3 C4=C5 ; RDKit calls it aromatic.
         let pyridone = [
-            (0, 1, Single),
-            (1, 2, Single),
-            (2, 3, Double),
-            (3, 4, Single),
-            (4, 5, Double),
-            (5, 0, Single),
-            (1, 6, Double),
+            bond(0, 1, Single),
+            bond(1, 2, Single),
+            bond(2, 3, Double),
+            bond(3, 4, Single),
+            bond(4, 5, Double),
+            bond(5, 0, Single),
+            bond(1, 6, Double),
         ];
         let t = Topology::new(&[N, C, C, C, C, C, O], &pyridone).unwrap();
         assert_eq!(t.aromatic_rings().count(), 1);
@@ -601,7 +617,7 @@ mod tests {
     #[test]
     fn non_bonded_pairs_exclude_one_two_and_one_three() {
         // Butane chain C0-C1-C2-C3-C4: pairs (0,3), (0,4), (1,4) only.
-        let bonds: Vec<Bond> = (0..4).map(|i| (i, i + 1, BondOrder::Single)).collect();
+        let bonds: Vec<Bond> = (0..4).map(|i| bond(i, i + 1, BondOrder::Single)).collect();
         let t = Topology::new(&[C; 5], &bonds).unwrap();
         let pairs: Vec<(u32, u32, u8)> = t
             .non_bonded_pairs()
@@ -616,15 +632,15 @@ mod tests {
     fn bad_bond_lists_are_rejected() {
         let s = BondOrder::Single;
         assert_eq!(
-            Topology::new(&[C; 2], &[(0, 2, s)]).unwrap_err(),
+            Topology::new(&[C; 2], &[bond(0, 2, s)]).unwrap_err(),
             TopologyError::AtomOutOfRange { bond: 0, atom: 2 }
         );
         assert_eq!(
-            Topology::new(&[C; 2], &[(1, 1, s)]).unwrap_err(),
+            Topology::new(&[C; 2], &[bond(1, 1, s)]).unwrap_err(),
             TopologyError::SelfBond { bond: 0 }
         );
         assert_eq!(
-            Topology::new(&[C; 2], &[(0, 1, s), (1, 0, s)]).unwrap_err(),
+            Topology::new(&[C; 2], &[bond(0, 1, s), bond(1, 0, s)]).unwrap_err(),
             TopologyError::DuplicateBond { bond: 1 }
         );
     }

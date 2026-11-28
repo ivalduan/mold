@@ -221,7 +221,7 @@ pub fn aromatic_ring_flatness(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::topology::BondOrder;
+    use crate::topology::{Bond, BondOrder};
     use mold_mol::Element;
 
     fn hexagon(z_bump: f32) -> Vec<[f32; 3]> {
@@ -245,7 +245,11 @@ mod tests {
                 } else {
                     BondOrder::Single
                 };
-                (i, (i + 1) % 6, o)
+                Bond {
+                    a: i,
+                    b: (i + 1) % 6,
+                    order: o,
+                }
             })
             .collect();
         Topology::new(&[Element::C; 6], &bonds).unwrap()

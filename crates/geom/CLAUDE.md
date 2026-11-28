@@ -23,17 +23,17 @@ Until `mol`'s arena API lands on `main`, develop kernels against plain `&[[f32; 
 |---|---|
 | `spatial` | `SpatialIndex`: immutable `kiddo` KD-tree; `nearest`, `within`, `for_each_within`, `count_within` |
 | `rmsd` | `rmsd` (no superposition), `kabsch_rmsd` (Horn quaternion), `centroid`, `centroid_distance` |
-| `topology` | `Topology::new(elements, &[(u32, u32, BondOrder)])`: rings, aromaticity, hybridisation, reference bond lengths / 1-3 distances, non-bonded pairs. Built once per ligand |
+| `topology` | `Topology::new(elements, &[Bond])` or `Topology::from_arena(arena, pose)` (mol's `Bond`/`BondOrder`, pose-local): rings, aromaticity, hybridisation, reference bond lengths / 1-3 distances, non-bonded pairs. Built once per ligand |
 | `ligand` | `bond_lengths`, `bond_angles`, `internal_clashes`, `aromatic_ring_flatness`, `plane_distances` |
 | `receptor` | `Receptor` (heavy atoms + KD-tree, built once), `protein_ligand_distances`, `volume_overlap`, `detect_covalent_attachments`, `covalent_exclusions` |
 | `gate` | `PoseGate::new(receptor, topology, GateConfig).with_reference(..)`, `evaluate(positions, covalent) -> GateReport` |
 | `radii` | vdW (RDKit table) and covalent (Pyykkö) radii |
 
-Test-only: `tests/common/mod.rs` has a minimal V2000 molfile reader and CSV reader. It is **not** public API; SDF reading belongs in `mol` or `chem`.
+Test-only: `tests/common/mod.rs` loads fixture ligands through `mold_mol::sdf` and proteins through `mold_mol::io`, and has a minimal CSV reader. It is **not** public API.
 
 ## Design notes
 
-**Inputs are plain slices.** Positions `&[[f32; 3]]`, `mold_mol::Element`s, and an explicit bond list where topology matters (the arena has no bonds). Everything that depends only on connectivity lives in `Topology` and is computed once per ligand, so gating N poses of one ligand costs N × geometry only. Internally all arithmetic is `f64`. Hydrogens are ignored by every check (PoseBusters' `ignore_hydrogens`), but kept in the graph.
+**Inputs are plain slices.** Positions `&[[f32; 3]]`, `mold_mol::Element`s, and, where topology matters, a bond list: `mold_mol::{Bond, BondOrder}` (re-exported as `mold_geom::{Bond, BondOrder}`) with pose-local indices. `Topology::from_arena(arena, pose)` builds it from `Arena::pose_bonds` (SDF poses); PDB/mmCIF poses have no bonds in the arena. Everything that depends only on connectivity lives in `Topology` and is computed once per ligand, so gating N poses of one ligand costs N × geometry only. Internally all arithmetic is `f64`. Hydrogens are ignored by every check (PoseBusters' `ignore_hydrogens`), but kept in the graph.
 
 **Thresholds** (`GateConfig`, what the Pose Gate node exposes):
 

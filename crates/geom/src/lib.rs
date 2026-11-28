@@ -5,8 +5,8 @@
 //!
 //! Every kernel takes plain slices — positions as `&[[f32; 3]]` (what
 //! [`mold_mol::Arena::pose_positions`] hands out), [`mold_mol::Element`]s, and,
-//! where topology matters, an explicit [`Bond`] list (the arena carries no
-//! bonds by design).
+//! where topology matters, a [`Bond`] list (`mold_mol`'s type, pose-local
+//! indices; [`Topology::from_arena`] takes them straight from an SDF pose).
 //!
 //! - [`spatial`]: KD-tree ([`SpatialIndex`]) for neighbour and radius queries.
 //! - [`rmsd`]: plain RMSD, Kabsch RMSD, centroid distance.
