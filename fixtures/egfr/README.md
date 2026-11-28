@@ -9,7 +9,7 @@ do not edit these files by hand.
 
 | File | Size | Content |
 |---|---|---|
-| `receptor.cif` | 160 KB | PDB **4WKQ** chain A, polymer only: 296 residues (Ala694–Gln1020, numbering not gap-free), 2338 atom sites |
+| `receptor.cif` | 160 KB | PDB **4WKQ** chain A, polymer only: 297 residue groups (Ala694–Gln1020, numbering not gap-free): 296 standard residues as `ATOM` plus the modified Cys797 (`CSX`) as `HETATM`, which is what the Pose Gate's `protein` rule decides about; 2338 atom sites |
 | `reference.cif` | 162 KB | the same chain plus gefitinib (`IRE`, 31 atoms) in its crystal pose |
 | `reference_ligand.sdf` | 2.7 KB | gefitinib alone, 31 atoms / 34 **explicit bonds** (the arena has no bonds) |
 | `pocket.toml` | 3.0 KB | the 22 pocket residues, with each one's distance to the ligand |
