@@ -11,7 +11,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -55,6 +55,15 @@ pub(crate) struct Control<'a> {
     pub up: &'a dyn Fn(),
     /// A worker that writes nothing within this long of being spawned is killed.
     pub startup_limit: Duration,
+    /// Called once, before the local process tree is killed, on every way out of a
+    /// run *except* a clean finish (cancel, timeout, a protocol failure, a child
+    /// still holding stdout). The SSH flavour kills the **remote** process group
+    /// here: the local `ssh` client is only the near end of the worker.
+    pub reap: &'a dyn Fn(),
+    /// Extra words for a run that ended without a `finished` event, read from the
+    /// transport's exit status: `ssh`'s own 255, a remote shell's 127. Empty for a
+    /// local worker, whose exit status says it all.
+    pub hint: &'a dyn Fn(Option<ExitStatus>) -> String,
 }
 
 enum Msg {
@@ -78,6 +87,8 @@ pub(crate) fn run(
         stop,
         up,
         startup_limit,
+        reap,
+        hint,
     } = *control;
     let fail = |m: String| NodeError::Failed(format!("worker `{worker}`: {m}"));
     let dir = &cmd.run_dir;
@@ -184,8 +195,9 @@ pub(crate) fn run(
             Err(RecvTimeoutError::Timeout) => {
                 if !is_up && spawned.elapsed() > startup_limit {
                     failure = Some(fail(format!(
-                        "wrote no event within {} s of starting{}",
+                        "wrote no event within {} s of starting{}{}",
                         startup_limit.as_secs(),
+                        hint(None),
                         stderr_tail(dir)
                     )));
                     break;
@@ -217,7 +229,18 @@ pub(crate) fn run(
             std::thread::sleep(Duration::from_millis(5));
         }
     }
-    // Whatever happened, nothing the worker started outlives the run.
+    // Whatever happened, nothing the worker started outlives the run. Anything but a
+    // clean `finished` may have left work on the far side of the transport (an SSH
+    // host), which killing the local client would not touch: reap that, while the
+    // connection is still up. A clean run needs no second connection — there the
+    // remote wrapper ends its own process group.
+    let clean = !cancelled
+        && failure.is_none()
+        && !lingered
+        && matches!(finished, Some((_, JobStatus::Ok, _)));
+    if !clean {
+        reap();
+    }
     tree.kill();
     let status = tree.wait();
     let _ = writer.join();
@@ -254,12 +277,14 @@ pub(crate) fn run(
             stderr()
         ))),
         None if status.success() => Err(fail(format!(
-            "exited without a `finished` event{}",
+            "exited without a `finished` event{}{}",
+            hint(Some(status)),
             stderr()
         ))),
         None => Err(fail(format!(
-            "{} before `finished`{}",
+            "{} before `finished`{}{}",
             describe_exit(status),
+            hint(Some(status)),
             stderr()
         ))),
     }

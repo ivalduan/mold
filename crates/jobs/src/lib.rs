@@ -19,6 +19,7 @@ mod process;
 mod profile;
 pub mod protocol;
 mod runner;
+mod sched;
 mod wsl;
 
 use std::collections::BTreeMap;
@@ -28,13 +29,14 @@ use std::sync::{Arc, Mutex};
 use mold_graph::{Engine, Executor, Graph};
 
 pub use error::ConfigError;
-pub use local::{LocalExecutor, Notice};
+pub use local::LocalExecutor;
 pub use manifest::{Environment, MANIFEST_FILE, Manifest, Workers};
 pub use process::pid_alive;
 pub use profile::{
     LOCAL, Origin, Profile, ProfileSources, Profiles, SITE_FILE_VAR, SshTarget, Target, Wsl,
 };
 pub use runner::{EVENTS_FILE, SPEC_FILE, STDERR_FILE};
+pub use sched::{CommandExecutor, Notice};
 pub use wsl::wsl_path;
 
 /// The executors of one machine: profiles, workers and a run root, turned into
@@ -44,7 +46,7 @@ pub struct Executors {
     profiles: Profiles,
     workers: Arc<Workers>,
     run_root: PathBuf,
-    built: Mutex<BTreeMap<String, Arc<LocalExecutor>>>,
+    built: Mutex<BTreeMap<String, Arc<dyn CommandExecutor>>>,
 }
 
 impl Executors {
@@ -67,17 +69,15 @@ impl Executors {
         &self,
         key: &str,
         used_by: Vec<String>,
-    ) -> Result<Arc<LocalExecutor>, ConfigError> {
+    ) -> Result<Arc<dyn CommandExecutor>, ConfigError> {
         let mut built = self.built.lock().expect("executors lock");
         if let Some(e) = built.get(key) {
             return Ok(e.clone());
         }
         let profile = self.profiles.resolve(key, used_by)?;
-        let e = Arc::new(LocalExecutor::new(
-            profile,
-            self.workers.clone(),
-            self.run_root.join(key),
-        )?);
+        let workers = self.workers.clone();
+        let run_root = self.run_root.join(key);
+        let e: Arc<dyn CommandExecutor> = Arc::new(LocalExecutor::new(profile, workers, run_root)?);
         built.insert(key.to_string(), e.clone());
         Ok(e)
     }
