@@ -1,6 +1,6 @@
 [package]
 name = "mold-mock-cofold"
-description = "Mock co-fold worker: replays a fixture directory of real poses with realistic timing"
+description = "Mock co-fold worker: deterministic seeded poses and failure injection, no GPU, no Python"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,7 +14,13 @@ path = "src/main.rs"
 
 [dependencies]
 mold-jobs.workspace = true
+mold-mol.workspace = true
 serde_json.workspace = true
+
+# The local executor's process tests live here: `CARGO_BIN_EXE_mock-cofold` is only
+# visible to this package's integration tests (see crates/jobs/CLAUDE.md).
+[dev-dependencies]
+mold-graph.workspace = true
 
 [lints]
 workspace = true

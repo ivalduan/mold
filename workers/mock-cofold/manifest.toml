@@ -1,6 +1,7 @@
-# Worker manifest. Schema is owned by WS-05 (mold-jobs); this is the draft shape.
+# Worker manifest. Schema: crates/jobs/src/manifest.rs (validated, never installed).
 name = "mock-cofold"
-executable = "mock-cofold"     # resolved from target/ or PATH
+executable = "mock-cofold"     # bare name: the worker search path (e.g. target/debug), this directory, then PATH
 environment = "none"
 needs_gpu = false
-model = "fixture-replay"
+model = "mock-cofold"
+license = "Apache-2.0"

@@ -4395,7 +4395,9 @@ dependencies = [
 name = "mold-mock-cofold"
 version = "0.0.0"
 dependencies = [
+ "mold-graph",
  "mold-jobs",
+ "mold-mol",
  "serde_json",
 ]
 
