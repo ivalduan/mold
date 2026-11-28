@@ -66,6 +66,11 @@ kiddo = { version = "6.3.2", default-features = false }
 # recipe: TOML parse (with spans, for error positions) and value formatting. Already in
 # the lock (embed-resource, a gpui-fast build-dependency), so this adds no new crate.
 toml = "1.2.2"
+# jobs: kill a worker's whole process tree on cancel or timeout. Windows: a Job Object
+# (raw FFI; members pick the Win32 features). Unix: the worker's process group (killpg).
+# Both already in the lock through other crates, so this adds no new crate.
+windows-sys = "0.61"
+libc = "0.2"
 
 # Dev only: property tests and benchmarks (geom first; any crate may use them).
 proptest = "1.12"
