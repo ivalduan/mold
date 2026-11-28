@@ -5,7 +5,7 @@
 //! pose's positions (indexed like the topology's atoms), and returns the number
 //! behind the verdict as well as the verdict. Hydrogens are ignored.
 
-use crate::linalg::{dist, dot, jacobi_eigen, mean, sub, v3};
+use crate::linalg::{dist, dot, plane_fit, sub, v3};
 use crate::topology::Topology;
 
 /// Result of [`bond_lengths`].
@@ -147,21 +147,7 @@ pub fn plane_distances(points: &[[f32; 3]]) -> Vec<f64> {
     if points.len() < 3 {
         return Vec::new();
     }
-    let c = mean(points.iter().copied());
-    let mut cov = [[0.0f64; 3]; 3];
-    for p in points {
-        let d = sub(v3(*p), c);
-        for i in 0..3 {
-            for j in 0..3 {
-                cov[i][j] += d[i] * d[j];
-            }
-        }
-    }
-    let (vals, vecs) = jacobi_eigen(cov);
-    let k = (0..3)
-        .min_by(|&a, &b| vals[a].total_cmp(&vals[b]))
-        .unwrap_or(0);
-    let normal = [vecs[0][k], vecs[1][k], vecs[2][k]];
+    let (c, normal) = plane_fit(points);
     points.iter().map(|p| dot(sub(v3(*p), c), normal)).collect()
 }
 
@@ -221,7 +207,7 @@ pub fn aromatic_ring_flatness(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::topology::BondOrder;
+    use crate::topology::{Bond, BondOrder};
     use mold_mol::Element;
 
     fn hexagon(z_bump: f32) -> Vec<[f32; 3]> {
@@ -245,7 +231,11 @@ mod tests {
                 } else {
                     BondOrder::Single
                 };
-                (i, (i + 1) % 6, o)
+                Bond {
+                    a: i,
+                    b: (i + 1) % 6,
+                    order: o,
+                }
             })
             .collect();
         Topology::new(&[Element::C; 6], &bonds).unwrap()

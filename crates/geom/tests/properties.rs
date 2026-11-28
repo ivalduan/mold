@@ -5,7 +5,7 @@ use mold_geom::SpatialIndex;
 use mold_geom::ligand::{aromatic_ring_flatness, internal_clashes};
 use mold_geom::receptor::{DistanceParams, Receptor, protein_ligand_distances};
 use mold_geom::rmsd::{centroid_distance, kabsch_rmsd, rmsd};
-use mold_geom::{BondOrder, Topology};
+use mold_geom::{Bond, BondOrder, Topology};
 use mold_mol::Element;
 use proptest::prelude::*;
 
@@ -149,10 +149,10 @@ proptest! {
     fn internal_checks_are_invariant_under_rigid_transform(a in points(6..30), g in rigid()) {
         // A chain with one six-ring at the start, so flatness has a ring to fit.
         let n = a.len() as u32;
-        let mut bonds: Vec<(u32, u32, BondOrder)> = (0..n - 1)
-            .map(|i| (i, i + 1, if i % 2 == 0 && i < 6 { BondOrder::Double } else { BondOrder::Single }))
+        let mut bonds: Vec<Bond> = (0..n - 1)
+            .map(|i| Bond { a: i, b: i + 1, order: if i % 2 == 0 && i < 6 { BondOrder::Double } else { BondOrder::Single } })
             .collect();
-        bonds.push((0, 5, BondOrder::Single));
+        bonds.push(Bond { a: 0, b: 5, order: BondOrder::Single });
         let t = Topology::new(&vec![Element::C; a.len()], &bonds).unwrap();
         let b = g.apply_all(&a);
         let (ca, cb) = (internal_clashes(&t, &a, 0.5), internal_clashes(&t, &b, 0.5));

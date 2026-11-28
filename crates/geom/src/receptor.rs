@@ -1,19 +1,47 @@
 //! Protein–ligand checks against a receptor indexed once: smallest distance,
 //! pairwise clashes, maximum distance, volume overlap, and covalent attachments.
 
-use mold_mol::Element;
+use std::collections::HashMap;
+use std::fmt;
 
+use mold_mol::{Arena, AtomName, Element, PoseId};
+
+use crate::contacts::{ReceptorSites, type_receptor};
 use crate::linalg::dist2_f32;
 use crate::radii::{covalent_radius, vdw_radius};
 use crate::spatial::SpatialIndex;
 use crate::topology::{BondOrder, Topology};
 
+/// Which residue a receptor atom belongs to, copied from the arena.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResidueId {
+    /// Author chain id.
+    pub chain: String,
+    /// Residue name (`"MET"`).
+    pub name: String,
+    pub seq_num: i32,
+    pub insertion_code: Option<char>,
+}
+
+impl fmt::Display for ResidueId {
+    /// `A:MET:793` (`A:MET:793B` with an insertion code).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}:{}", self.chain, self.name, self.seq_num)?;
+        if let Some(c) = self.insertion_code {
+            write!(f, "{c}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A receptor's heavy atoms with their radii and a KD-tree. Build once, check
 /// every pose against it.
 ///
 /// Protein atom indices in every result ([`Contact::protein`],
-/// [`CovalentAttachment::protein_atom`]) refer to the slices passed to
-/// [`Receptor::new`], not to the internal heavy-atom subset.
+/// [`CovalentAttachment::protein_atom`], the [`crate::contacts`] lists) refer
+/// to the slices passed to [`Receptor::new`] — or, for
+/// [`Receptor::from_arena`], to the pose's atoms (pose-local, like
+/// [`Arena::pose_positions`]) — not to the internal heavy-atom subset.
 #[derive(Debug)]
 pub struct Receptor {
     positions: Vec<[f32; 3]>,
@@ -22,9 +50,132 @@ pub struct Receptor {
     source: Vec<u32>,
     index: SpatialIndex,
     max_vdw: f32,
+    /// Per heavy atom; empty for [`Receptor::new`] (no names, no residues).
+    names: Vec<AtomName>,
+    residue_of: Vec<u32>,
+    residues: Vec<ResidueId>,
+    /// Contact typing, built once. Empty for [`Receptor::new`].
+    sites: ReceptorSites,
 }
 
 impl Receptor {
+    /// A receptor from one arena pose, with atom names and residue identity, so
+    /// that [`crate::contacts::contacts`] can type it (donors, acceptors,
+    /// charged groups and aromatic rings by residue and atom name). Every atom
+    /// of the pose is kept, waters and hetero residues included (they count
+    /// for clashes; waters are not typed for contacts). `None` if the arena
+    /// has no such pose.
+    pub fn from_arena(arena: &Arena, pose: PoseId) -> Option<Receptor> {
+        Receptor::from_arena_filtered(arena, pose, |_| true)
+    }
+
+    /// [`Receptor::from_arena`] keeping only the atoms (global arena indices)
+    /// for which `keep` is true, e.g. polymer atoms only, as PoseBusters'
+    /// protein checks see a receptor.
+    pub fn from_arena_filtered(
+        arena: &Arena,
+        pose: PoseId,
+        mut keep: impl FnMut(usize) -> bool,
+    ) -> Option<Receptor> {
+        let atoms = arena.pose(pose)?.atoms.clone();
+        let start = atoms.start;
+        let mut r = Receptor::empty(atoms.len());
+        let mut hydrogens = Vec::new();
+        let mut residue_map: HashMap<u32, u32> = HashMap::new();
+        for i in atoms {
+            if !keep(i) {
+                continue;
+            }
+            let e = arena.elements()[i];
+            let p = arena.positions()[i];
+            if e == Element::H {
+                hydrogens.push(p);
+                continue;
+            }
+            let ri = arena.residue_indices()[i];
+            let next = r.residues.len() as u32;
+            let local = *residue_map.entry(ri).or_insert_with(|| {
+                let res = &arena.residues()[ri as usize];
+                r.residues.push(ResidueId {
+                    chain: arena.chains()[res.chain as usize].id.clone(),
+                    name: res.name.clone(),
+                    seq_num: res.seq_num,
+                    insertion_code: res.insertion_code,
+                });
+                next
+            });
+            r.push(p, e, (i - start) as u32);
+            r.names.push(arena.atom_names()[i]);
+            r.residue_of.push(local);
+        }
+        r.index = SpatialIndex::new(&r.positions);
+        r.sites = type_receptor(&r, &hydrogens);
+        Some(r)
+    }
+
+    fn empty(capacity: usize) -> Receptor {
+        Receptor {
+            positions: Vec::with_capacity(capacity),
+            elements: Vec::with_capacity(capacity),
+            radii: Vec::with_capacity(capacity),
+            source: Vec::with_capacity(capacity),
+            index: SpatialIndex::new(&[]),
+            max_vdw: 0.0,
+            names: Vec::new(),
+            residue_of: Vec::new(),
+            residues: Vec::new(),
+            sites: ReceptorSites::default(),
+        }
+    }
+
+    fn push(&mut self, p: [f32; 3], e: Element, source: u32) {
+        self.positions.push(p);
+        self.elements.push(e);
+        let rad = vdw_radius(e);
+        self.max_vdw = self.max_vdw.max(rad);
+        self.radii.push(rad);
+        self.source.push(source);
+    }
+
+    /// Residues of the typed atoms ([`Receptor::from_arena`]; empty for
+    /// [`Receptor::new`]). Contact lists index into this.
+    pub fn residues(&self) -> &[ResidueId] {
+        &self.residues
+    }
+
+    /// Residue of a receptor atom (source index), if the receptor has names.
+    pub fn residue_of(&self, source: u32) -> Option<&ResidueId> {
+        let k = self.heavy_of_source(source)? as usize;
+        let r = *self.residue_of.get(k)?;
+        self.residues.get(r as usize)
+    }
+
+    /// Atom name of a receptor atom (source index), if the receptor has names.
+    pub fn atom_name(&self, source: u32) -> Option<AtomName> {
+        let k = self.heavy_of_source(source)? as usize;
+        self.names.get(k).copied()
+    }
+
+    pub(crate) fn heavy_position(&self, k: u32) -> [f32; 3] {
+        self.positions[k as usize]
+    }
+
+    pub(crate) fn heavy_element(&self, k: u32) -> Element {
+        self.elements[k as usize]
+    }
+
+    pub(crate) fn heavy_name(&self, k: u32) -> Option<AtomName> {
+        self.names.get(k as usize).copied()
+    }
+
+    pub(crate) fn heavy_residue(&self, k: u32) -> u32 {
+        self.residue_of[k as usize]
+    }
+
+    pub(crate) fn sites(&self) -> &ReceptorSites {
+        &self.sites
+    }
+
     /// Index the heavy atoms of `positions`/`elements` (hydrogens are dropped,
     /// as PoseBusters does with `ignore_types={"hydrogens"}`).
     ///
@@ -36,24 +187,12 @@ impl Receptor {
             elements.len(),
             "positions/elements length mismatch"
         );
-        let mut r = Receptor {
-            positions: Vec::with_capacity(positions.len()),
-            elements: Vec::with_capacity(positions.len()),
-            radii: Vec::with_capacity(positions.len()),
-            source: Vec::with_capacity(positions.len()),
-            index: SpatialIndex::new(&[]),
-            max_vdw: 0.0,
-        };
+        let mut r = Receptor::empty(positions.len());
         for (i, (&p, &e)) in positions.iter().zip(elements).enumerate() {
             if e == Element::H {
                 continue;
             }
-            r.positions.push(p);
-            r.elements.push(e);
-            let rad = vdw_radius(e);
-            r.max_vdw = r.max_vdw.max(rad);
-            r.radii.push(rad);
-            r.source.push(i as u32);
+            r.push(p, e, i as u32);
         }
         r.index = SpatialIndex::new(&r.positions);
         r
@@ -450,7 +589,7 @@ pub fn detect_covalent_attachments(
 /// the bonded pair itself, the ligand atom with the protein atom's covalent
 /// neighbours (1-3 across the bond), and the ligand atom's bonded neighbours
 /// with the protein atom (1-3 the other way). Protein neighbours are found by
-/// distance (within 1.2 × the covalent radius sum), since the arena has no bonds.
+/// distance (within 1.2 × the covalent radius sum), since PDB/mmCIF poses carry no bonds in the arena.
 pub fn covalent_exclusions(
     receptor: &Receptor,
     topology: &Topology,

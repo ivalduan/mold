@@ -49,6 +49,66 @@ pub(crate) fn mean<I: IntoIterator<Item = [f32; 3]>>(points: I) -> V3 {
     [s[0] / n, s[1] / n, s[2] / n]
 }
 
+#[inline]
+pub(crate) fn add(a: V3, b: V3) -> V3 {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+#[inline]
+pub(crate) fn scale(a: V3, s: f64) -> V3 {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+
+#[inline]
+pub(crate) fn cross(a: V3, b: V3) -> V3 {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+#[inline]
+pub(crate) fn norm(a: V3) -> f64 {
+    dot(a, a).sqrt()
+}
+
+/// `a / |a|`, or `None` for a (near-)zero vector.
+#[inline]
+pub(crate) fn unit(a: V3) -> Option<V3> {
+    let n = norm(a);
+    (n > 1e-9).then(|| scale(a, 1.0 / n))
+}
+
+/// Angle between two vectors in degrees (0 if either is zero).
+pub(crate) fn angle_deg(a: V3, b: V3) -> f64 {
+    let n = norm(a) * norm(b);
+    if n < 1e-12 {
+        return 0.0;
+    }
+    (dot(a, b) / n).clamp(-1.0, 1.0).acos().to_degrees()
+}
+
+/// Least-squares plane through `points`: `(centroid, unit normal)`. The
+/// normal's sign is arbitrary. Needs at least three points.
+pub(crate) fn plane_fit(points: &[[f32; 3]]) -> (V3, V3) {
+    let c = mean(points.iter().copied());
+    let mut cov = [[0.0f64; 3]; 3];
+    for p in points {
+        let d = sub(v3(*p), c);
+        for (i, row) in cov.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell += d[i] * d[j];
+            }
+        }
+    }
+    let (vals, vecs) = jacobi_eigen(cov);
+    let k = (0..3)
+        .min_by(|&a, &b| vals[a].total_cmp(&vals[b]))
+        .unwrap_or(0);
+    (c, [vecs[0][k], vecs[1][k], vecs[2][k]])
+}
+
 /// Eigen-decomposition of a symmetric `N×N` matrix by cyclic Jacobi rotations.
 /// Returns `(eigenvalues, eigenvectors)` with eigenvector `k` in column `k`
 /// (`vectors[i][k]`), unsorted.

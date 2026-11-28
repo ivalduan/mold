@@ -26,6 +26,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | gnina | not used | GPL | subprocess only, if ever | excluded from v0.1 |
 | ColabFold MSA server | nodes (MSA Query) | network service | remote call | planned; sends sequence off-box |
 | PoseBusters 0.6.5, RDKit, gemmi | `fixtures/scripts` only | BSD-3-Clause / BSD-3-Clause / MPL-2.0 | neither: offline fixture tooling, run via `uv` | in use (WS-13); not linked, not shipped, not in CI |
+| PLIP 3.0.1, Open Babel (`openbabel-wheel` 3.1.1.23) | `fixtures/scripts/make_plip_reference.py` only (produces `fixtures/plip/reference.csv` for geom's contact cross-check) | GPL-2.0-only (verified: PyPI metadata `License-Expression`) / GPL-2.0 | offline, reference data only: run once via `uv`; never linked, shipped or run in CI (ADR-0008) | in use (WS-03) |
 
 ## Redistributed data
 

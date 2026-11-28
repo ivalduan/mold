@@ -287,7 +287,7 @@ fn translated_poses_have_exact_golden_numbers() {
     }
 }
 
-fn gate_for(pdb: &str, lig: &str, config: GateConfig) -> (PoseGate, common::Molfile) {
+fn gate_for(pdb: &str, lig: &str, config: GateConfig) -> (PoseGate, common::Ligand) {
     let crystal = common::load_ligand(&format!("inputs/{pdb}_{lig}_crystal.sdf"));
     let (pp, pe) = common::load_protein_polymer(&format!("inputs/{pdb}_protein.pdb"));
     let gate = PoseGate::new(
