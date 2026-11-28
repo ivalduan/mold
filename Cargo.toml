@@ -63,6 +63,10 @@ windows = { version = "0.62", features = ["Win32_Graphics_DirectComposition"] }
 # geom: KD-tree for neighbour and radius queries. No rayon: the gate parallelises (or not)
 # at the node level, and geom stays single-threaded and deterministic.
 kiddo = { version = "6.3.2", default-features = false }
+# recipe: TOML parse (with spans, for error positions) and value formatting. Already in
+# the lock (embed-resource, a gpui-fast build-dependency), so this adds no new crate.
+toml = "1.2.2"
+
 # Dev only: property tests and benchmarks (geom first; any crate may use them).
 proptest = "1.12"
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

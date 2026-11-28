@@ -14,6 +14,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol); held below 0.54, which links tokio |
 | arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
 | kiddo 6.3 (default features off: no rayon) | geom | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use |
+| toml 1.2 (default features: parse, serde, display) | recipe | MIT OR Apache-2.0 (verified: crates.io metadata + LICENSE-MIT/LICENSE-APACHE in the crate) | linked | in use; already in the tree as a build-dependency of gpui-fast (embed-resource) |
 | proptest 1.12 | geom (dev-dependency) | MIT OR Apache-2.0 (verified: crates.io metadata) | linked into tests only | in use |
 | criterion 0.8 (default features off: no rayon, no plotters) | geom, mol, render (dev-dependency) | Apache-2.0 OR MIT (verified: crates.io metadata) | linked into benches only | in use |
 | rdkit-sys → RDKit | chem (feature `rdkit`) | BSD-3-Clause (_verify_) | linked (FFI) | planned (ADR-0006) |
