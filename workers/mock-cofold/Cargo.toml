@@ -12,6 +12,18 @@ publish.workspace = true
 name = "mock-cofold"
 path = "src/main.rs"
 
+# The SSH executor's test doubles (src/double.rs): `ssh`- and `scp`-shaped stand-ins,
+# so staging, the remote wrapper and the remote process-group kill are testable with
+# no network and no sshd. They live in this package because only its own integration
+# tests see `CARGO_BIN_EXE_*` for the worker *and* the doubles at once.
+[[bin]]
+name = "mock-ssh"
+path = "src/bin/mock-ssh.rs"
+
+[[bin]]
+name = "mock-scp"
+path = "src/bin/mock-scp.rs"
+
 [dependencies]
 mold-jobs.workspace = true
 mold-mol.workspace = true
