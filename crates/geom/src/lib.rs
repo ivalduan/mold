@@ -13,10 +13,12 @@
 //! - [`topology`]: bond graph, rings, aromaticity, reference geometry ([`Topology`]).
 //! - [`ligand`]: bond lengths, bond angles, internal clashes, aromatic ring flatness.
 //! - [`receptor`]: protein–ligand distance, clashes, volume overlap, covalent attachments.
-//! - [`gate`]: all of the above per pose, with thresholds ([`PoseGate`], [`GateConfig`]).
+//! - [`gate`]: the checks above per pose, with thresholds ([`PoseGate`], [`GateConfig`]).
+//! - [`contacts`]: H-bonds, salt bridges, π-stacking, cation–π, separate from the gate ([`contacts()`], [`ContactConfig`]).
 
 mod linalg;
 
+pub mod contacts;
 pub mod gate;
 pub mod ligand;
 pub mod radii;
@@ -25,8 +27,9 @@ pub mod rmsd;
 pub mod spatial;
 pub mod topology;
 
+pub use contacts::{ContactConfig, Contacts, contacts};
 pub use gate::{Accuracy, GateConfig, GateError, GateReport, PoseGate, Verdicts};
-pub use receptor::{CovalentAttachment, Receptor};
+pub use receptor::{CovalentAttachment, Receptor, ResidueId};
 pub use spatial::{Neighbour, SpatialIndex};
 pub use topology::{Bond, BondOrder, Topology, TopologyError};
 

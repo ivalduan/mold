@@ -95,6 +95,26 @@ pub fn load_protein(relative: &str) -> (Vec<[f32; 3]>, Vec<Element>) {
     (pose.to_vec(), arena.elements()[range].to_vec())
 }
 
+pub fn fixtures_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
+}
+
+/// A receptor PDB and a ligand SDF (paths relative to `fixtures/posebusters`)
+/// read into one arena: `(arena, receptor pose, ligand pose)`.
+pub fn load_complex(protein: &str, ligand: &str) -> (Arena, mold_mol::PoseId, mold_mol::PoseId) {
+    let mut arena = Arena::new();
+    let ids = mold_mol::io::read_file(
+        &mut arena,
+        posebusters_dir().join(protein),
+        &LoadOptions::default(),
+    )
+    .expect("protein loads");
+    let read = mold_mol::sdf::read_sdf_file(&mut arena, posebusters_dir().join(ligand))
+        .expect("ligand loads");
+    assert!(read.errors.is_empty(), "{:?}", read.errors);
+    (arena, ids[0], read.records[0].pose)
+}
+
 /// The protein as PoseBusters' `_protein` checks see it: ATOM records only.
 /// PoseBusters files HETATM residues (e.g. 4WKQ's CSX 797) under cofactors.
 pub fn load_protein_polymer(relative: &str) -> (Vec<[f32; 3]>, Vec<Element>) {

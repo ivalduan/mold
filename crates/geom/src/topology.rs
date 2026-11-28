@@ -15,6 +15,7 @@ use std::fmt;
 
 use mold_mol::{Arena, Element, PoseId};
 
+use crate::contacts::{LigandSites, type_ligand};
 use crate::radii::{reference_bond_length, vdw_radius};
 
 /// mol's bond types are geom's: a [`Topology`] takes [`Bond`]s with **pose-local**
@@ -45,6 +46,8 @@ pub enum TopologyError {
     DuplicateBond { bond: usize },
     /// [`Topology::from_arena`] was given a pose the arena does not have.
     NoSuchPose(PoseId),
+    /// [`Topology::with_formal_charges`] got a charge list of the wrong length.
+    ChargeCount { expected: usize, got: usize },
 }
 
 impl fmt::Display for TopologyError {
@@ -56,6 +59,9 @@ impl fmt::Display for TopologyError {
             TopologyError::SelfBond { bond } => write!(f, "bond {bond} joins an atom to itself"),
             TopologyError::DuplicateBond { bond } => write!(f, "bond {bond} is a duplicate"),
             TopologyError::NoSuchPose(id) => write!(f, "the arena has no pose {}", id.0),
+            TopologyError::ChargeCount { expected, got } => {
+                write!(f, "{got} formal charges for {expected} atoms")
+            }
         }
     }
 }
@@ -110,6 +116,9 @@ pub struct Topology {
     bond_refs: Vec<BondRef>,
     angle_refs: Vec<AngleRef>,
     non_bonded: Vec<NonBondedPair>,
+    formal_charges: Vec<i8>,
+    /// Contact typing (donors, acceptors, charged groups), see [`crate::contacts`].
+    sites: LigandSites,
 }
 
 fn is_hydrogen(e: Element) -> bool {
@@ -148,6 +157,8 @@ impl Topology {
             bond_refs: Vec::new(),
             angle_refs: Vec::new(),
             non_bonded: Vec::new(),
+            formal_charges: vec![0; n],
+            sites: LigandSites::default(),
         };
         t.rings = t.perceive_rings();
         t.aromatic = t.rings.iter().map(|r| t.ring_is_aromatic(r)).collect();
@@ -155,7 +166,32 @@ impl Topology {
         t.bond_refs = t.build_bond_refs();
         t.angle_refs = t.build_angle_refs();
         t.non_bonded = t.build_non_bonded();
+        t.sites = type_ligand(&t);
         Ok(t)
+    }
+
+    /// Set the atoms' formal charges (default: all zero). They decide implicit
+    /// hydrogen counts and charged groups for contact profiling; nothing else
+    /// depends on them. [`Topology::from_arena`] sets them from the arena.
+    pub fn with_formal_charges(mut self, charges: &[i8]) -> Result<Topology, TopologyError> {
+        if charges.len() != self.elements.len() {
+            return Err(TopologyError::ChargeCount {
+                expected: self.elements.len(),
+                got: charges.len(),
+            });
+        }
+        self.formal_charges = charges.to_vec();
+        self.sites = type_ligand(&self);
+        Ok(self)
+    }
+
+    /// Formal charge per atom.
+    pub fn formal_charges(&self) -> &[i8] {
+        &self.formal_charges
+    }
+
+    pub(crate) fn sites(&self) -> &LigandSites {
+        &self.sites
     }
 
     /// Build the graph of one arena pose from its elements and its bonds
@@ -168,7 +204,8 @@ impl Topology {
         };
         let start = p.atoms.start;
         let local: Vec<Bond> = bonds.iter().map(|b| b.relative_to(start)).collect();
-        Topology::new(&arena.elements()[p.atoms.clone()], &local)
+        Topology::new(&arena.elements()[p.atoms.clone()], &local)?
+            .with_formal_charges(&arena.formal_charges()[p.atoms.clone()])
     }
 
     pub fn atom_count(&self) -> usize {
