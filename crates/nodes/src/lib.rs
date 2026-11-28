@@ -4,12 +4,31 @@
 //!
 //! See `CLAUDE.md` in this crate for what is built and what is not, and
 //! `docs/authoring-a-node.md` to add one.
+//!
+//! # What a host needs
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//! use mold_graph::{Engine, RunDirCache};
+//!
+//! let registry = Arc::new(mold_nodes::registry());
+//! let codecs = Arc::new(mold_nodes::codecs());
+//! let cache = Arc::new(RunDirCache::open("run", codecs)?);
+//! let engine = Engine::new(registry, cache);
+//! # Ok::<(), std::io::Error>(())
+//! ```
+//!
+//! [`registry`] is enough to load, validate and replay a recipe. To actually run the
+//! co-fold node, build it with the machine's worker manifests
+//! ([`registry_with_workers`]) and attach `mold_jobs::Executors`.
 
 mod codec;
 mod cofold;
 mod data;
 mod load_ligands;
 mod load_structure;
+mod pose_gate;
+mod profiler;
 mod protein;
 mod seq;
 pub mod table;
@@ -24,6 +43,8 @@ pub use cofold::CoFold;
 pub use data::{Ligand, LigandSet, PoseSet, append_pose, single_pose_arena};
 pub use load_ligands::LoadLigands;
 pub use load_structure::LoadStructure;
+pub use pose_gate::PoseGate;
+pub use profiler::InteractionProfiler;
 pub use protein::ProteinRule;
 pub use seq::sequence;
 
@@ -32,9 +53,17 @@ pub mod kinds {
     pub use crate::cofold::KIND as COFOLD;
     pub use crate::load_ligands::KIND as LOAD_LIGANDS;
     pub use crate::load_structure::KIND as LOAD_STRUCTURE;
+    pub use crate::pose_gate::KIND as POSE_GATE;
+    pub use crate::profiler::KIND as INTERACTION_PROFILER;
 
     /// Every kind, for a palette or a test.
-    pub const ALL: [&str; 3] = [LOAD_STRUCTURE, LOAD_LIGANDS, COFOLD];
+    pub const ALL: [&str; 5] = [
+        LOAD_STRUCTURE,
+        LOAD_LIGANDS,
+        COFOLD,
+        POSE_GATE,
+        INTERACTION_PROFILER,
+    ];
 }
 
 /// Every node kind of this build. The co-fold node reports default [`Needs`] because
@@ -58,6 +87,8 @@ fn build(cofold: CoFold) -> Registry {
     r.processor(LoadStructure)
         .and_then(|r| r.processor(LoadLigands))
         .and_then(|r| r.processor(cofold))
+        .and_then(|r| r.processor(PoseGate))
+        .and_then(|r| r.processor(InteractionProfiler))
         .expect("the node specs of this crate are valid");
     r
 }
@@ -106,6 +137,25 @@ mod tests {
             // freshly added node cooks without the user typing anything.
             let defaults = r.default_params(kind).expect(kind);
             assert_eq!(defaults.iter().count(), spec.params.len(), "{kind}");
+        }
+    }
+
+    #[test]
+    fn every_port_type_a_node_uses_has_a_codec() {
+        let r = registry();
+        let c = codecs();
+        // `can_encode` needs a value; the registry's own `Debug` lists the port types.
+        let registered = format!("{c:?}");
+        for spec in r.kinds() {
+            for port in spec.inputs.iter().chain(&spec.outputs) {
+                assert!(
+                    registered.contains(&format!("{:?}", port.ty)),
+                    "{}.{}: {:?} has no codec",
+                    spec.kind,
+                    port.name,
+                    port.ty
+                );
+            }
         }
     }
 }
