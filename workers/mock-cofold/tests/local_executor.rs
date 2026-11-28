@@ -73,7 +73,15 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // On Windows a just-emptied run directory can stay "in use" for a moment after
+        // its processes are gone (antivirus, indexer); retry briefly instead of leaking
+        // it into %TEMP%.
+        for _ in 0..40 {
+            if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 }
 
