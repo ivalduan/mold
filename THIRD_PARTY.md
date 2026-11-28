@@ -4,8 +4,8 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 
 | Component | Used by | Licence | Mode | Status |
 |---|---|---|---|---|
-| serde, serde_json | graph, jobs | MIT OR Apache-2.0 | linked | in use |
-| blake3 | graph (content-hash cache keys), mol (arena cache checksum) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
+| serde, serde_json | graph, jobs, nodes (worker events and `JobSpec` params) | MIT OR Apache-2.0 | linked | in use |
+| blake3 | graph (content-hash cache keys), mol (arena cache checksum), nodes (source-file fingerprints) | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | linked | in use |
 | GPUI Kit 0.11.0 (`gpui-kit`, feature `gpui-fast`) → GPUI Fast 0.1.19 (`gpui-fast*`), GPUI snapshot `gpui-pre*` =0.3.14, `gpui-base`, `gpui-component` | ui-* , app | Apache-2.0 (verified: crates.io metadata + upstream LICENSE-APACHE in longbridge/gpui-kit and longbridge/gpui-fast) | linked | in use (ui-viewport, Windows only); pinned by ADR-0002 |
 | wgpu 30.0.1 | render, ui-viewport | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (render, ui-viewport); exact pin matches gpui-fast-wgpu |
 | bytemuck, glam 0.34 | render, ui-viewport | bytemuck: Zlib OR Apache-2.0 OR MIT; glam: MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use (render, ui-viewport) |
@@ -13,7 +13,7 @@ The interaction mode is doing real work here: GPL tools are acceptable only as *
 | windows-sys 0.61 (Microsoft windows-rs, raw FFI; features `Win32_System_JobObjects`, `Win32_System_Threading`, `Win32_System_Diagnostics_ToolHelp`, `Win32_Security`) | jobs (Windows only: a Job Object that kills a worker's process tree) | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use; already in the lock through other crates |
 | libc 0.2 | jobs (Unix only: `killpg` of a worker's process group) | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use; already in the lock through other crates |
 | pdbtbx 0.12 | mol | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use |
-| polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol); held below 0.54, which links tokio |
+| polars 0.53 | mol, nodes, ui-panels | MIT (verified: crates.io metadata + upstream LICENSE) | linked | in use (mol, nodes); held below 0.54, which links tokio |
 | arrow | nodes, ui-panels | Apache-2.0 (_verify_) | linked | planned |
 | kiddo 6.3 (default features off: no rayon) | geom | MIT OR Apache-2.0 (verified: crates.io metadata) | linked | in use |
 | toml 1.2 (default features: parse, serde, display) | recipe | MIT OR Apache-2.0 (verified: crates.io metadata + LICENSE-MIT/LICENSE-APACHE in the crate) | linked | in use; already in the tree as a build-dependency of gpui-fast (embed-resource) |

@@ -17,6 +17,12 @@ mold-chem.workspace = true
 mold-geom.workspace = true
 mold-graph.workspace = true
 mold-jobs.workspace = true
+blake3.workspace = true
+polars.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+mold-recipe.workspace = true
 
 [lints]
 workspace = true
