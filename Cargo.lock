@@ -4383,8 +4383,12 @@ dependencies = [
 name = "mold-jobs"
 version = "0.0.0"
 dependencies = [
+ "libc",
+ "mold-graph",
  "serde",
  "serde_json",
+ "toml 1.2.2+spec-1.1.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
