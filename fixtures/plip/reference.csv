@@ -1,0 +1,13 @@
+complex,pose,interaction,ligand_role,ligand_atoms,receptor_residue,receptor_atoms,distance,angle,offset
+1M17,crystal,hbond,acceptor,23,A:MET:769,N,2.6991,170.0236,
+1M17,clash,hbond,acceptor,13,A:ASP:776,OD1,3.7037,127.5338,
+1M17,clash,hbond,acceptor,5,A:ASP:831,OD2,3.4132,128.0899,
+4WKQ,crystal,hbond,acceptor,18,A:MET:793,N,2.9776,161.9147,
+4WKQ,crystal,saltbridge,positive,5,A:ASP:800,OD1 OD2,4.2433,,
+4WKQ,clash,hbond,acceptor,20,A:THR:854,OG1,2.2318,120.2869,
+4WKQ,clash,pication,ring,23 24 25 27 29 30,A:LYS:745,NZ,5.6241,,1.0218
+4WKQ,clash,saltbridge,positive,5,A:ASP:800,OD1 OD2,4.3001,,
+4G5J,crystal,hbond,acceptor,2,A:MET:793,N,3.3439,165.0412,
+4G5J,crystal,hbond,acceptor,22,A:LYS:728,NZ,3.8912,107.5365,
+4G5J,crystal,hbond,acceptor,28,A:CYS:797,N,3.5344,108.4157,
+4G5J,crystal,saltbridge,positive,31,A:ASP:800,OD1 OD2,4.5572,,
