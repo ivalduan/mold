@@ -5,6 +5,7 @@
 ## Transport
 - The runner (`mold-jobs`) spawns the worker's executable (from its manifest) **with the item's run directory as its working directory**.
 - **stdin**: exactly one JSON document, the `JobSpec`, then EOF.
+- **Write the first event (normally `started`) as soon as the `JobSpec` is read.** The attempt counts as running from that event: the node's `timeout` starts there, so process start-up never eats into it.
 - **stdout**: newline-delimited JSON, one `WorkerEvent` object per line, flushed per line. At most 1 MiB per line. Blank lines are ignored.
 - **stderr**: free-form logs, captured to `stderr.log` in the run directory, not parsed. Its last lines are quoted when the run fails.
 - **Artifacts** (pose `.cif` files etc.) are written into the run directory and referenced by **relative path**. Never stream artifact bytes through the pipe.
@@ -55,6 +56,7 @@ Score keys should use the pose-table column names (`plddt`, `iptm`, `affinity_pr
 | writes a malformed line | fails at once, naming the line; the tree is killed |
 | exits but a child keeps stdout open | after 2 s the tree is killed; the run ends on what was received |
 | hangs | the node's `timeout` (engine) cancels it; the tree is killed |
+| writes no event within 60 s of starting (or the node's `timeout`, if longer) | fails; the tree is killed |
 
 ## Manifest (`workers/<name>/manifest.toml`)
 Schema and validation: [crates/jobs/src/manifest.rs](../crates/jobs/src/manifest.rs). Unknown keys are refused.

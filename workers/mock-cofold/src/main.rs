@@ -15,7 +15,7 @@
 //! | `delay_ms` | 0 | sleep before each pose |
 //! | `write_files` | true | write pose files (else `cif_path` names a file that does not exist) |
 //! | `fail` | none | failure injection, see below |
-//! | `fail_after` | 1 | poses emitted before the failure |
+//! | `fail_after` | 1 | poses emitted before the failure (0 = before any event) |
 //! | `gate` | none | a file (relative to the run directory) to wait for before pose `gate_after` |
 //! | `gate_after` | 1 | poses emitted before waiting for `gate` |
 //!
@@ -169,6 +169,11 @@ fn run<W: Write>(spec: &JobSpec, out: &mut Out<W>) -> Result<(), String> {
     }
     let total = ligands.len() as u32 * p.samples;
     let job_id = spec.job_id.clone();
+    // `fail_after = 0`: before the first event. For `orphan`, the runner then sees no
+    // event before the child exists and `pids.json` is written.
+    if p.fail.is_some() && p.fail_after == 0 {
+        inject(p.fail.as_deref().unwrap_or_default(), dir, out)?;
+    }
     out.emit(WorkerEvent::Started {
         job_id: job_id.clone(),
         total,
@@ -186,7 +191,7 @@ fn run<W: Write>(spec: &JobSpec, out: &mut Out<W>) -> Result<(), String> {
     let mut done = 0u32;
     for (i, &lig) in ligands.iter().enumerate() {
         for k in 0..p.samples {
-            if p.fail.is_some() && done == p.fail_after {
+            if p.fail.is_some() && p.fail_after > 0 && done == p.fail_after {
                 inject(p.fail.as_deref().unwrap_or_default(), dir, out)?;
             }
             if let Some(gate) = p.gate.as_ref().filter(|_| done == p.gate_after) {
@@ -212,7 +217,7 @@ fn run<W: Write>(spec: &JobSpec, out: &mut Out<W>) -> Result<(), String> {
             });
         }
     }
-    if p.fail.is_some() && done == p.fail_after {
+    if p.fail.is_some() && p.fail_after > 0 && done == p.fail_after {
         inject(p.fail.as_deref().unwrap_or_default(), dir, out)?;
     }
     out.emit(WorkerEvent::Finished {
@@ -259,12 +264,12 @@ fn inject<W: Write>(mode: &str, dir: &Path, out: &mut Out<W>) -> Result<(), Stri
     }
 }
 
-/// Wait (up to 60 s) until `path` exists: lets a test hold the worker mid-stream
+/// Wait (up to 240 s) until `path` exists: lets a test hold the worker mid-stream
 /// without timing assumptions.
 fn wait_for(path: &Path) -> Result<(), String> {
     let t = std::time::Instant::now();
     while !path.exists() {
-        if t.elapsed() > Duration::from_secs(60) {
+        if t.elapsed() > Duration::from_secs(240) {
             return Err(format!("gate {} never opened", path.display()));
         }
         std::thread::sleep(Duration::from_millis(2));

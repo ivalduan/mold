@@ -6,6 +6,10 @@
 //! - Each started job gets a thread and a fresh run directory
 //!   `<run root>/<item key hex>/<attempt>`; then prepare → run → collect through
 //!   [`Job::prepare`] / [`Job::run_command`].
+//! - A worker item reports `started` (the item turns `Cooking` and the node's timeout
+//!   starts) when the worker writes its first event, so prepare and process start-up
+//!   never eat into the timeout; start-up has its own bound (60 s, or the timeout if
+//!   longer). A Rust-native item reports it before cooking.
 //! - Cancel and timeout (the engine sets the job's token and calls
 //!   [`Executor::cancel`]) kill the worker's whole process tree.
 
@@ -243,7 +247,8 @@ impl Inner {
             needs: job.needs,
             dir: dir.clone(),
         };
-        handle.started();
+        // `started` (which starts the node's timeout) is reported in `cook`: for a
+        // worker, once it has written its first event.
         let r = self.cook(&job, &handle, &dir, &kill);
         // Finish before releasing capacity, so the next job's `started` reaches the
         // engine after this one's result.
@@ -265,11 +270,12 @@ impl Inner {
         }
         match job.prepare(dir)? {
             Some(cmd) => job.run_command(&cmd, handle, |cmd, events| {
-                self.run_worker(job, cmd, events, kill)
+                self.run_worker(job, cmd, events, kill, &|| handle.started())
             }),
             None => {
                 let _ = std::fs::remove_dir(dir);
                 self.notice_native(&job.kind);
+                handle.started();
                 job.cook_here(handle)
             }
         }
@@ -291,6 +297,7 @@ impl Inner {
         cmd: &CommandJob,
         events: &mut EventSink<'_>,
         kill: &AtomicBool,
+        up: &dyn Fn(),
     ) -> Result<serde_json::Value, NodeError> {
         let spec = JobSpec::from_value(&cmd.spec)
             .map_err(|e| NodeError::msg(format!("node `{}` prepared {e}", job.kind)))?;
@@ -306,7 +313,16 @@ impl Inner {
         let launch = self.launch(job, cmd)?;
         let cancel = job.cancel.clone();
         let stop = move || cancel.is_cancelled() || kill.load(Ordering::Relaxed);
-        runner::run(&cmd.worker, &launch, cmd, &spec, events, &stop)
+        let startup_limit = job
+            .policy
+            .timeout
+            .map_or(runner::STARTUP_LIMIT, |t| t.max(runner::STARTUP_LIMIT));
+        let control = runner::Control {
+            stop: &stop,
+            up,
+            startup_limit,
+        };
+        runner::run(&cmd.worker, &launch, cmd, &spec, events, &control)
     }
 
     /// The command line for `cmd.worker` on this profile.

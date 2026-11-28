@@ -81,6 +81,11 @@ fn id(s: &str) -> NodeId {
     NodeId::new(s)
 }
 
+/// How long a condition on other processes may take. Generous (a loaded machine can
+/// take seconds to start a process); it only matters when something is broken, and
+/// the watchdog (300 s) is the last resort.
+const PATIENCE: Duration = Duration::from_secs(120);
+
 /// Poll `cond` until it holds or `timeout` passes. For conditions on other
 /// processes (a killed PID disappearing), never for ordering.
 fn eventually(timeout: Duration, mut cond: impl FnMut() -> bool) -> bool {
@@ -602,7 +607,7 @@ fn cancel_kills_the_process_tree_and_caches_nothing() {
     let cancel = CancelToken::new();
     let (c, s) = (cancel.clone(), shared.clone());
     let canceller = std::thread::spawn(move || {
-        let started = eventually(Duration::from_secs(30), || {
+        let started = eventually(PATIENCE, || {
             let dirs = s.all_dirs();
             dirs.len() == 2 && dirs.iter().all(|d| pids(d).is_some())
         });
@@ -635,9 +640,7 @@ fn cancel_kills_the_process_tree_and_caches_nothing() {
         .collect();
     assert_eq!(all.len(), 4);
     assert!(
-        eventually(Duration::from_secs(10), || all
-            .iter()
-            .all(|&p| !pid_alive(p))),
+        eventually(PATIENCE, || all.iter().all(|&p| !pid_alive(p))),
         "worker and grandchild processes are gone: {:?}",
         all.iter().map(|&p| (p, pid_alive(p))).collect::<Vec<_>>()
     );
@@ -646,7 +649,7 @@ fn cancel_kills_the_process_tree_and_caches_nothing() {
         assert!(cache.get(&it.key).is_none(), "{} was cached", it.id);
     }
     let ex = ex.executor("mock", vec![]).unwrap();
-    assert!(ex.wait_idle(Duration::from_secs(10)));
+    assert!(ex.wait_idle(PATIENCE));
 }
 
 #[test]
@@ -655,7 +658,15 @@ fn timeout_kills_the_worker_and_each_retry_gets_a_fresh_run_dir() {
     let shared = Arc::new(Shared::default());
     let reg = registry(1, &shared);
     let ex = Executors::new(mock_profile(2, 0), workers(), &tmp.0);
-    let mut g = graph(&reg, Some("mock"), &[("fail", "orphan".into())]);
+    // `fail_after = 0`: the worker spawns its child and writes `pids.json` before its
+    // first event, and the timeout only starts at that first event (the executor
+    // reports `started` there). So when the timeout fires, the whole tree provably
+    // exists, however long process start-up took.
+    let mut g = graph(
+        &reg,
+        Some("mock"),
+        &[("fail", "orphan".into()), ("fail_after", 0i64.into())],
+    );
     let node = g.nodes.get_mut(&id("cofold")).unwrap();
     node.timeout = Some(1.0);
     node.retries = 1;
@@ -678,11 +689,11 @@ fn timeout_kills_the_worker_and_each_retry_gets_a_fresh_run_dir() {
         "attempt 0, then 1"
     );
     let ex = ex.executor("mock", vec![]).unwrap();
-    assert!(ex.wait_idle(Duration::from_secs(10)));
+    assert!(ex.wait_idle(PATIENCE));
     for d in &dirs {
-        let (w, c) = pids(d).expect("each attempt ran");
+        let (w, c) = pids(d).expect("each attempt was up before its timeout");
         assert!(
-            eventually(Duration::from_secs(10), || !pid_alive(w) && !pid_alive(c)),
+            eventually(PATIENCE, || !pid_alive(w) && !pid_alive(c)),
             "attempt in {} left processes behind",
             d.display()
         );
@@ -838,7 +849,7 @@ fn a_child_left_holding_stdout_neither_hangs_the_run_nor_survives_it() {
     assert_eq!(state, ItemState::Cooked, "{e}");
     let (w, c) = pids.expect("the worker recorded its child");
     assert!(
-        eventually(Duration::from_secs(10), || !pid_alive(w) && !pid_alive(c)),
+        eventually(PATIENCE, || !pid_alive(w) && !pid_alive(c)),
         "no orphan after a successful run"
     );
 }

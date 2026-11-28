@@ -33,6 +33,10 @@ const POLL: Duration = Duration::from_millis(20);
 const EXIT_GRACE: Duration = Duration::from_secs(2);
 /// After stdout closes, how long the worker may take to exit.
 const FINISH_GRACE: Duration = Duration::from_secs(5);
+/// How long a worker may take, from being spawned, to write its first event (or the
+/// node's timeout, if longer). Start-up is outside the timeout, which counts from the
+/// first event, but it is never unbounded.
+pub(crate) const STARTUP_LIMIT: Duration = Duration::from_secs(60);
 
 /// What to start: a program and its arguments. The working directory is always the
 /// run directory.
@@ -40,6 +44,17 @@ const FINISH_GRACE: Duration = Duration::from_secs(5);
 pub(crate) struct Launch {
     pub program: OsString,
     pub args: Vec<OsString>,
+}
+
+/// How the executor steers one run.
+pub(crate) struct Control<'a> {
+    /// Turns true on cancel or timeout: kill the tree and stop.
+    pub stop: &'a dyn Fn() -> bool,
+    /// Called once, when the worker writes its first line: the attempt is running
+    /// from then on (the executor reports `started`, which starts the timeout).
+    pub up: &'a dyn Fn(),
+    /// A worker that writes nothing within this long of being spawned is killed.
+    pub startup_limit: Duration,
 }
 
 enum Msg {
@@ -57,8 +72,13 @@ pub(crate) fn run(
     cmd: &CommandJob,
     spec: &JobSpec,
     events: &mut EventSink<'_>,
-    stop: &dyn Fn() -> bool,
+    control: &Control<'_>,
 ) -> Result<serde_json::Value, NodeError> {
+    let Control {
+        stop,
+        up,
+        startup_limit,
+    } = *control;
     let fail = |m: String| NodeError::Failed(format!("worker `{worker}`: {m}"));
     let dir = &cmd.run_dir;
     let spec_bytes = canonical_json(&cmd.spec);
@@ -74,6 +94,9 @@ pub(crate) fn run(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(stderr);
+    if stop() {
+        return Err(NodeError::Cancelled);
+    }
     let mut tree = ProcessTree::spawn(&mut command).map_err(|e| {
         fail(format!(
             "cannot start {}: {e}",
@@ -97,6 +120,8 @@ pub(crate) fn run(
     let mut cancelled = false;
     let mut exited: Option<Instant> = None;
     let mut line_no = 0usize;
+    let spawned = Instant::now();
+    let mut is_up = false;
     loop {
         if stop() {
             cancelled = true;
@@ -105,6 +130,10 @@ pub(crate) fn run(
         match rx.recv_timeout(POLL) {
             Ok(Msg::Line(line)) => {
                 line_no += 1;
+                if !is_up {
+                    is_up = true;
+                    up();
+                }
                 let _ = log.write_all(&line).and_then(|()| log.write_all(b"\n"));
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
@@ -153,6 +182,14 @@ pub(crate) fn run(
                 break;
             }
             Err(RecvTimeoutError::Timeout) => {
+                if !is_up && spawned.elapsed() > startup_limit {
+                    failure = Some(fail(format!(
+                        "wrote no event within {} s of starting{}",
+                        startup_limit.as_secs(),
+                        stderr_tail(dir)
+                    )));
+                    break;
+                }
                 if exited.is_none() && matches!(tree.child_mut().try_wait(), Ok(Some(_))) {
                     exited = Some(Instant::now());
                 }
